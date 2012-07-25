@@ -199,7 +199,7 @@ def dquery_drupal_version(drupal_root):
                         version['minor'] = int(version['minor'])
                         return version
 
-    print 'drupal version could not be detected'
+    print 'Error: Drupal version could not be detected'
     exit()
 
 """
@@ -569,10 +569,62 @@ def dquery_sites(args):
     for site in dquery_discover_sites(args.drupal_root, cache=False):
         print dquery_format_site(site, args.drupal_root, args.format)
 
+
+
+#def dquery_get_drupal_context():
+      # Check if we are inside drupal context
+#TODO: rename subdirectory
+"""
+def is_subdir_of(subdirectory, directory):
+    #TODO: is there a less hackish way?
+    return os.path.commonprefix([directory, subdirectory]) == directory and subdirectory.endswith(os.path.relpath(subdirectory, directory))
+"""
+"""
+def is_subdir_of(subdirectory, directory):
+    #directory = os.path.realpath(directory)
+    #dirname = os.path.dirname(os.path.realpath(subdirectory))
+    dirname = os.path.dirname(subdirectory)
+    while dirname and len(dirname) >= len(directory):
+        if dirname == directory:
+            return True
+        dirname = os.path.dirname(dirname)
+    else:
+        return False
+"""
+# recursive variant
+def is_subdir_of(subdirectory, directory):
+    subdirdir = os.path.dirname(subdirectory)
+    #subdirdir != subdirectory checks if root , does not work on windows shares though (\\share\path)
+    return subdirdir != subdirectory and\
+        len(subdirdir) >= len(directory) and\
+        (subdirdir == directory or is_subdir_of(subdirdir, directory))
+
+#TODO: some command don't need drupal root, just scanning module directories for example, solve this
+def module_directories_from_context(drupal_root, cache=True):
+    cwd = os.getcwd()
+    #cwd = os.path.realpath(cwd) #seems like realpath by default
+    #Do we reside in the current drupal_root?
+    module_directories = dquery_drupal_module_directories(drupal_root, cache=cache)
+    if os.path.commonprefix([cwd, drupal_root]) == drupal_root:
+        relpath = os.path.relpath(cwd, drupal_root)
+        #Get all valid module subdirecties of cwd
+        #TODO: benchmark
+        module_directories = [directory for directory in module_directories if directory == cwd or is_subdir_of(directory, cwd)]
+        if not len(module_directories):
+            #Non standard module directory, still inside of drupal context, return cwd
+            return [cwd]
+        return module_directories
+    else:
+        #otherwise, default to all known module directories
+        return module_directories
+
+
 def dquery_projects(args):
-    module_directories = dquery_drupal_module_directories(args.drupal_root, cache=args.use_cache)
+    module_directories = args.module_directories if\
+            args.module_directories is not None else\
+            module_directories_from_context(args.drupal_root, args.use_cache)
     module_map = dquery_modules_list(args.drupal_root, module_directories, cache=args.use_cache)
-    projects = args.projects if len(args.projects) else module_map.keys
+    projects = args.projects if len(args.projects) else module_map.keys()
     for project in projects:
         for projects_dir in module_map[project]:
             version = ''
@@ -581,7 +633,18 @@ def dquery_projects(args):
                 if 'version' in module_info['info']:
                     version = module_info['info']['version']
                     break
-            print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir])
+
+            if args.format is not None:
+                replacements = {
+                    'project' : project,
+                    'version' : version,
+                    'directory' : project_dir
+                }
+                #Just testing
+                #Just try except here and we should be safe
+                print args.format.format(**replacements)
+            else:
+                print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir])
             
 def dquery_modules(args):
     module_directories = dquery_drupal_module_directories(args.drupal_root, cache=args.use_cache)
@@ -687,6 +750,7 @@ def dquery_format_site(site_abspath, drupal_root, format):
         #print error/warning
         return site_abspath
 
+
 def _dquery_main(args=None):
 
     if args is None:
@@ -721,7 +785,12 @@ def _dquery_main(args=None):
     parser_sites.set_defaults(func=dquery_sites)
    
     parser_projects = subparsers.add_parser('projects', help='list projects')
+    #CHANGED 
+    parser_projects.add_argument('--module-directories', dest='module_directories', metavar='MODULE_DIRECTORIES', type=str, nargs='*', help='Module directories')
+    parser_projects.add_argument('--format', dest='format', metavar='PYTHON_FORMAT {blabla}', type=str, help='Format')
+    #/CHANGED
     parser_projects.add_argument('projects', metavar='PROJECT', type=str, nargs='*', help='Limit results')
+
     parser_projects.set_defaults(func=dquery_projects)
     
     parser_modules = subparsers.add_parser('modules', help='list modules')
