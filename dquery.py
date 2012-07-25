@@ -61,13 +61,23 @@ def pickle_memoize(f):
         return result
     return g
 
+
+#TODO: This should thow an exception if variable not found!!
 def drupal_settings_variable_json(filename, variable):
     command = ['php', 'json_settings.php', filename, variable];
     try:
         #db_url_data = subprocess.check_output(command) # only works in python 2.7+
-        json_data = subprocess.Popen(command, stdout=subprocess.PIPE).communicate()[0]
-        variable_json = json.loads(json_data)
-        return variable_json;
+        php_process = subprocess.Popen(command, stdout=subprocess.PIPE) # .communicate()[0]
+        data = php_process.communicate()[0]
+
+        # Replace with constants
+        if php_process.returncode == 1:
+            print 'Error: variable ' + variable + ' not found in ' + filename
+        elif php_process.returncode:
+            print 'Error: unkown error for ' + variable + ' in ' + filename
+        else:
+            variable_json = json.loads(data)
+            return variable_json;
     except subprocess.CalledProcessError as e:
         print e
 
@@ -77,23 +87,52 @@ def drupal6_db_settings(filename):
     db_url = drupal_settings_variable_json(filename, 'db_url')
     if isinstance(db_url, dict):
         if 'default' in db_url:
-             db_url = db_url['default']
+            db_url = db_url['default']
+            match = d6_db_url_re.match(db_url);
+            return match.groupdict()
         else:
              #TODO: proper error
-            print 'error'
+            print 'error invalid db_url'
+            exit()
 
     #check if db_url is string?
-    match = d6_db_url_re.match(db_url);
-    return match.groupdict()
 
- 
-def sqlalchemy_connection_url(drupal_settings_filename, drupal_version = 6):
+def drupal7_db_settings(filename):
+    databases = drupal_settings_variable_json(filename, 'databases')
+    if isinstance(databases, dict):
+        try:
+            default_db = databases['default']['default']
+            # set empty strings to None
+            for key, value in default_db.items():
+                if isinstance(value, basestring) and not len(value):
+                    default_db[key] = None
+            return {
+                'type' : default_db.get('driver', 'mysql'),
+                'username' : default_db.get('username', None), #might use anonymous connectoin, allow empty username
+                'password' : default_db['password'],
+                'hostname' : default_db.get('host', None),
+                'port' : default_db.get('port', None),
+                'database' : default_db['database']
+             }
+        except KeyError:
+            print 'error: no default database'
+
+
+#TODO: replace version number with constant?
+def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
 
     if drupal_version == 6:
-        drupal_settings = drupal6_db_settings(drupal_settings_filename);
+        drupal_settings = drupal6_db_settings(drupal_settings_filename)
+    elif drupal_version == 7:
+        drupal_settings = drupal7_db_settings(drupal_settings_filename)
     else:
         #TODO: proper error
-        print 'error'
+        print 'error invalid version'
+        exit()
+
+    if drupal_settings is None:
+        print 'Error: no settings for ' + drupal_settings_filename
+        return None
 
     db_type_mapping = {
         'mysqli' : 'mysql',
@@ -123,7 +162,52 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version = 6):
 
     else:
         #TODO: proper error
-        print 'error'
+        print 'error invalid db type'
+        exit()
+
+
+"""
+ * Detects the version number of the current Drupal installation,
+ * if any. Returns FALSE if there is no current Drupal installation,
+ * or it is somehow broken.
+ *
+ * @return
+ *   A string containing the version number of the current
+ *   Drupal installation, if any. Otherwise, return FALSE.
+"""
+#Port of the drush function
+#TODO: optimize needed?
+drupal_version_re = re.compile(r"define\('VERSION',\s*'(?P<major>\d+)\.(?P<minor>\d+)'\);")
+@memoize
+def dquery_drupal_version(drupal_root):
+    # D7 stores VERSION in bootstrap.inc. D8 moved that to /core/includes.
+    version_constant_paths = [os.path.join(drupal_root, path)\
+            for path in ['modules/system/system.module', 'includes/bootstrap.inc', 'core/includes/bootstrap.inc']]
+    for filename in version_constant_paths:
+        # Drupal version is in top of file, so line buffring is probably most efficient
+        if os.path.isfile(filename):
+            with open(filename, 'r', 1) as f:
+                match = None
+                # Just testing, will this evaluate lazily?
+                #for first_match in (for match in (drupal_version.re.match(line) for line in f) if match is not None)
+                #    return first_match.groupdict()
+                for line in f:
+                    match = drupal_version_re.match(line)
+                    if match is not None:
+                        version = match.groupdict()
+                        version['major'] = int(version['major'])
+                        version['minor'] = int(version['minor'])
+                        return version
+
+    print 'drupal version could not be detected'
+    exit()
+
+"""
+ * Returns the Drupal major version number (6, 7, 8 ...)
+"""
+def dquery_drupal_major_version(drupal_root):
+    version = dquery_drupal_version(drupal_root)
+    return version['major']
 
 #TODO return paths, absolute or relative??
 @memoize
@@ -391,9 +475,14 @@ def dquery_build_module_usage_graph(drupal_root, site_directories = [], cache=Tr
                         'module_namespace' : module_namespace
                     }
 
+    drupal_major_version = dquery_drupal_major_version(drupal_root)
     for site in dquery_discover_sites(drupal_root, cache=cache):
-        connection_url = sqlalchemy_connection_url(os.path.join(site, 'settings.php'))
+        #TODO: throw exception instead of checking for none 
+        connection_url = sqlalchemy_connection_url(os.path.join(site, 'settings.php'), drupal_major_version)
+        if connection_url is None:
+            continue 
         engine = sqlalchemy.create_engine(connection_url + '?charset=utf8&use_unicode=0', encoding='utf-8')
+
         try:
             connection = engine.connect()
             #TODO: new try
