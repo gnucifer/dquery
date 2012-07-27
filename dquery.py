@@ -17,6 +17,13 @@ import cProfile
 import sys
 import cli #TODO
 import yaml #TODO: would be nice with some colored keys etc
+import httplib2
+import lxml.etree
+#TODO: try catch
+try:
+    from cStringIO import cStringIO as StringIO
+except:
+    from StringIO import StringIO
 
 #import inspect
 #TODO: rename module-usage to usage, or perhaps present tense, using?
@@ -88,13 +95,16 @@ def drupal6_db_settings(filename):
     if isinstance(db_url, dict):
         if 'default' in db_url:
             db_url = db_url['default']
-            match = d6_db_url_re.match(db_url);
-            return match.groupdict()
         else:
-             #TODO: proper error
-            print 'error invalid db_url'
+            print 'Error: no default db'
             exit()
-
+    if isinstance(db_url, basestring):
+        match = d6_db_url_re.match(db_url);
+        return match.groupdict()
+    else:
+        #TODO: proper error
+        print 'error invalid db_url'
+        exit()
     #check if db_url is string?
 
 def drupal7_db_settings(filename):
@@ -116,6 +126,10 @@ def drupal7_db_settings(filename):
              }
         except KeyError:
             print 'error: no default database'
+    else:
+        #TODO: proper error
+        print 'error invalid databases variable'
+        exit()
 
 
 #TODO: replace version number with constant?
@@ -166,6 +180,11 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
         exit()
 
 
+@memoize
+def regex_cache(regexp):
+    return re.compile(regexp)
+
+
 """
  * Detects the version number of the current Drupal installation,
  * if any. Returns FALSE if there is no current Drupal installation,
@@ -175,30 +194,41 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
  *   A string containing the version number of the current
  *   Drupal installation, if any. Otherwise, return FALSE.
 """
+
+#TODO: optimize needed?
+def dquery_extract_php_define_const(constant_name, filename):
+    with open(filename, 'r', 1) as f:
+        #TODO: allow double quote
+        re_string = r"define\('{0}',\s*'(.+)'\);".format(constant_name)
+        php_define_re = regex_cache(re_string)
+        match = None
+        # Just testing, will this evaluate lazily?
+        #for first_match in (for match in (drupal_version.re.match(line) for line in f) if match is not None)
+        #    return first_match.groupdict()
+        for line in f:
+            match = php_define_re.match(line)
+            if match is not None:
+                return match.group(1)
+
+
+
 #Port of the drush function
 #TODO: optimize needed?
-drupal_version_re = re.compile(r"define\('VERSION',\s*'(?P<major>\d+)\.(?P<minor>\d+)'\);")
 @memoize
 def dquery_drupal_version(drupal_root):
+    drupal_version_re = regex_cache(r"(?P<major>\d+)\.(?P<minor>\d+)")
     # D7 stores VERSION in bootstrap.inc. D8 moved that to /core/includes.
-    version_constant_paths = [os.path.join(drupal_root, path)\
+    version_constant_filenames = [os.path.join(drupal_root, path)\
             for path in ['modules/system/system.module', 'includes/bootstrap.inc', 'core/includes/bootstrap.inc']]
-    for filename in version_constant_paths:
+    for filename in version_constant_filenames:
         # Drupal version is in top of file, so line buffring is probably most efficient
         if os.path.isfile(filename):
-            with open(filename, 'r', 1) as f:
-                match = None
-                # Just testing, will this evaluate lazily?
-                #for first_match in (for match in (drupal_version.re.match(line) for line in f) if match is not None)
-                #    return first_match.groupdict()
-                for line in f:
-                    match = drupal_version_re.match(line)
-                    if match is not None:
-                        version = match.groupdict()
-                        version['major'] = int(version['major'])
-                        version['minor'] = int(version['minor'])
-                        return version
-
+            result = dquery_extract_php_define_const('VERSION', filename)
+            if result is not None:
+                version =  dict(zip(['major', 'minor'], map(int, result.split('.'))))
+                print 'version'
+                print version
+                return version
     print 'Error: Drupal version could not be detected'
     exit()
 
@@ -208,6 +238,20 @@ def dquery_drupal_version(drupal_root):
 def dquery_drupal_major_version(drupal_root):
     version = dquery_drupal_version(drupal_root)
     return version['major']
+
+@memoize
+def dquery_drupal_core_compatibility(drupal_root):
+    #TODO: have not actually checked these are the correct paths
+    core_compatibility_constant_filenames = [os.path.join(drupal_root, path)\
+            for path in ['modules/system/system.module', 'includes/bootstrap.inc', 'core/includes/bootstrap.inc']]
+    for filename in core_compatibility_constant_filenames:
+        # Drupal version is in top of file, so line buffring is probably most efficient
+        if os.path.isfile(filename):
+            result = dquery_extract_php_define_const('DRUPAL_CORE_COMPATIBILITY', filename)
+            if result is not None:
+                return result
+    print 'Error: Drupal core compatibility could not be detected'
+    exit()
 
 #TODO return paths, absolute or relative??
 @memoize
@@ -578,8 +622,6 @@ def dquery_sites(args):
 def is_subdir_of(subdirectory, directory):
     #TODO: is there a less hackish way?
     return os.path.commonprefix([directory, subdirectory]) == directory and subdirectory.endswith(os.path.relpath(subdirectory, directory))
-"""
-"""
 def is_subdir_of(subdirectory, directory):
     #directory = os.path.realpath(directory)
     #dirname = os.path.dirname(os.path.realpath(subdirectory))
@@ -619,11 +661,62 @@ def module_directories_from_context(drupal_root, cache=True):
         return module_directories
 
 
+def dquery_drupal_update_info_data(project, compatibility):
+    update_url = 'http://updates.drupal.org/release-history'
+    url = '/'.join([update_url, project, compatibility])
+    h = httplib2.Http('.cache')
+    resp, content = h.request(url, 'GET')
+    return content
+    #TODO
+
+# Compatibility feels a bit redundant, part of project?
+# project_version to be replaced with general project entity?
+# TODO: remove cache, just use for faster testing
+@memoize
+@pickle_memoize
+def dquery_drupal_update_recommended_release(project, compatibility, cache=True):
+    data = dquery_drupal_update_info_data(project, compatibility)
+    f = StringIO(data)
+    tree = lxml.etree.parse(f)
+    print project
+    error = tree.xpath('/error/text()')
+    #Trow exceptins instead so we can finally .close
+    if len(error):
+        print 'Error: ' + error[0]
+        f.close()
+        return None
+
+    project_status = tree.xpath('/project/project_status/text()')[0]
+    #just hacking this together for now
+    if project_status == 'unsupported':
+        print 'Warning: project ' + project + ' is unsupported'
+        f.close()
+        return None
+
+    #Check drupal logic for this
+    recommended_major = tree.xpath('/project/recommended_major/text()')
+    if len(recommended_major):
+        major = recommended_major[0]
+    else:
+        default_major = tree.xpath('/project/default_major/text()')
+        major = default_major[0]
+
+        
+    recommended_release = tree.xpath('/project/releases/release[version_major = $major][1]', major = major)[0]
+    version = recommended_release.xpath('version/text()')[0]
+    tag = recommended_release.xpath('tag/text()')[0]
+    f.close()
+    return {'version' : str(version), 'tag' : str(tag)}
+
 def dquery_projects(args):
     module_directories = args.module_directories if\
             args.module_directories is not None else\
             module_directories_from_context(args.drupal_root, args.use_cache)
     module_map = dquery_modules_list(args.drupal_root, module_directories, cache=args.use_cache)
+   
+    if args.update_status is not None:
+        compatibility = dquery_drupal_core_compatibility(args.drupal_root)
+
     projects = args.projects if len(args.projects) else module_map.keys()
     for project in projects:
         for projects_dir in module_map[project]:
@@ -633,8 +726,14 @@ def dquery_projects(args):
                 if 'version' in module_info['info']:
                     version = module_info['info']['version']
                     break
-
-            if args.format is not None:
+            #TODO: fix, for now just testing
+            if args.update_status is not None:
+                update_info = dquery_drupal_update_recommended_release(project, compatibility, cache=True)
+                if update_info is not None and update_info['version'] != version:
+                    print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir, 'status: latest version is ' + update_info['version']])
+                else:
+                    print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir, 'status: no updates available'])
+            elif args.format is not None:
                 replacements = {
                     'project' : project,
                     'version' : version,
@@ -788,6 +887,8 @@ def _dquery_main(args=None):
     #CHANGED 
     parser_projects.add_argument('--module-directories', dest='module_directories', metavar='MODULE_DIRECTORIES', type=str, nargs='*', help='Module directories')
     parser_projects.add_argument('--format', dest='format', metavar='PYTHON_FORMAT {blabla}', type=str, help='Format')
+    #TODO: some sort of action api/formalization? 'list'/'update_status' so forth, subsubcommands? dquery projects list, dquery projects update-status etc? Probably good idea
+    parser_projects.add_argument('--update-status', dest='update_status', action='store_true', help='Show update status')
     #/CHANGED
     parser_projects.add_argument('projects', metavar='PROJECT', type=str, nargs='*', help='Limit results')
 
@@ -810,7 +911,7 @@ def _dquery_main(args=None):
     parser_usage.add_argument('-f, --format', dest='format', choices=['uri', 'relpath', 'abspath', 'basename'], default='abspath', help='Site output format')
     #parser_usage.add_argument('--module', dest='module_namespace', type=str, help='List usage for this module only')
     #parser_usage.add_argument('--project', dest='project', type=str, help='List usage for this project only')
-    parser_usage.add_argument('targets', type=str, nargs='+', help='List usage for these targets')
+    parser_usage.add_argument('targets', type=str, nargs='*', help='List usage for these targets')
 
     parser_usage.set_defaults(func=dquery_usage)
 
