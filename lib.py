@@ -2,6 +2,7 @@
 
 #if sys.stdout.isatty(): + turn off pipe detection
 # + colors
+#TODO: python doc-strings format and inline tests for relevant functions
 
 import base64
 import json
@@ -99,7 +100,7 @@ def drupal6_db_settings(filename):
             print 'Error: no default db'
             exit()
     if isinstance(db_url, basestring):
-        match = d6_db_url_re.match(db_url);
+        match = d6_db_url_re.match(db_url)
         return match.groupdict()
     else:
         #TODO: proper error
@@ -162,15 +163,15 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
         ]
 
         if 'password' in drupal_settings and drupal_settings['password'] is not None:
-            connection_url.append(':' + drupal_settings['password']);
+            connection_url.append(':' + drupal_settings['password'])
 
-        connection_url.append('@');
+        connection_url.append('@')
         connection_url.append(drupal_settings['hostname'])
 
         if 'port' in drupal_settings and drupal_settings['port'] is not None:
-            connection_url.append(':' + drupal_settings['port']);
+            connection_url.append(':' + drupal_settings['port'])
 
-        connection_url.append('/' + drupal_settings['database']);
+        connection_url.append('/' + drupal_settings['database'])
 
         return ''.join(connection_url)
 
@@ -181,8 +182,8 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
 
 
 @memoize
-def regex_cache(regexp):
-    return re.compile(regexp)
+def regex_cache(regexp, flags=0):
+    return re.compile(regexp, flags)
 
 
 """
@@ -199,7 +200,7 @@ def regex_cache(regexp):
 def dquery_extract_php_define_const(constant_name, filename):
     with open(filename, 'r', 1) as f:
         #TODO: allow double quote
-        re_string = r"define\('{0}',\s*'(.+)'\);".format(constant_name)
+        re_string = r"define\('{0}',\s*'(.+)'\)".format(constant_name)
         php_define_re = regex_cache(re_string)
         match = None
         # Just testing, will this evaluate lazily?
@@ -232,6 +233,8 @@ def dquery_drupal_version(drupal_root):
     print 'Error: Drupal version could not be detected'
     exit()
 
+
+
 """
  * Returns the Drupal major version number (6, 7, 8 ...)
 """
@@ -257,9 +260,8 @@ def dquery_drupal_core_compatibility(drupal_root):
 @memoize
 @pickle_memoize
 def dquery_discover_sites(drupal_root, cache=True):
-   
     sites = []
-    sites_directory = os.path.join(drupal_root, 'sites');
+    sites_directory = os.path.join(drupal_root, 'sites')
     for f in os.listdir(sites_directory):
         if f != 'all':
             filename = os.path.join(sites_directory, f)
@@ -275,27 +277,24 @@ def dquery_discover_sites(drupal_root, cache=True):
 @memoize
 @pickle_memoize
 def dquery_discover_modules(path, cache=True):
-    #TODO: yield shit?
-    #TODO: decorator for this?
     modules = []
     for root, dirnames, filenames in os.walk(path):
         for basename in fnmatch.filter(filenames, '*.module'):
-            #check for existing info-file? # yes
             if os.path.isfile(os.path.join(root, basename[:-6] + 'info')):
-                modules.append(os.path.join(root, basename));
-            #else warning?
+                modules.append(os.path.join(root, basename))
+            else:
+                #replace with logging or debug option
+                print "Missing info file for" + basename
     return modules
 
-#TODO: not to much cache
-# Actually need this memoized for module info action
-# @pickle_memoize
-def dquery_get_modules(path, cache=True):
+def dquery_modules_info(path, cache=True):
     modules = {}
     for module_filename in dquery_discover_modules(path, cache=cache):
         modules[module_filename] = dquery_module_info(module_filename)
     return modules
 
 
+@memoize
 def dquery_module_info(module_filename):
     info_filename = ''.join([module_filename[:-6], 'info'])
     with open(info_filename) as f:
@@ -309,6 +308,7 @@ def dquery_valid_drupal_root(directory):
     return not len(fingerprint_files)
 
 # TODO: check if multislashes needed
+# TODO: put this in regex cache
 info_format_re = re.compile(r"""
     ^\s*                                # Start at the beginning of a line, ignoring leading whitespace
     ((?:
@@ -324,7 +324,7 @@ info_format_re = re.compile(r"""
     """, re.M | re.S | re.X)
 
 
-info_format_key_re = re.compile('\]?\[');
+info_format_key_re = re.compile('\]?\[')
 
 # port of drupal_parse_info_format (php)
 def drupal_parse_info_format(data):
@@ -360,125 +360,76 @@ def drupal_parse_info_format(data):
 
     return info
 
-#TODO: rename to build_something
-#TODO: option for project assignment hack?
-def dquery_modules_list(drupal_root, module_directories, cache=True):
-
-    #TODO: check if exists, filter with list comprehension?
- 
-    #print json.dumps(modules, sort_keys=True, indent=4)
-    # dquery_get_modules? dquery_modules()?
-    #TODO: loop instead and have build_modules take only one path
-    module_map = {}
-    modules_project_missing = []
-
-    for module_dir in module_directories:
+def dquery_directories_discover_projects(drupal_root, directories, cache=True):
+    directories_projects = {}
+    for directory in directories:
         #TODO: remove this kludge, and scan for missing modules separately
-        _module_map, _modules_project_missing = dquery_build_modules(drupal_root, module_dir, cache=True)
-        modules_project_missing = modules_project_missing + _modules_project_missing
-        
-        for project, info in _module_map.iteritems():
-            if project not in module_map:
-                module_map[project] = {}
-            module_map[project][module_dir] = info
-
-        #for project in _module_map:
-        #    for module_namespace in _module_map[project]:
-
-
-    # seems to be dangerous to place here, isolate!
-    """
-    project_mapping = dquery_build_project_mapping(modules)
-
-    #Second pass to fix modules with missing project, this feels hackish, provide option?
-    for module_namespace, filename in modules_project_missing:
-        try:
-            project = project_mapping[module_namespace]
-            modules[project]['modules'][module_namespace][filename] = []
-        except KeyError:
-            pass
-    """
-
-    return module_map
+        projects = dquery_directory_discover_projects(drupal_root, directory, cache=True)
+        for project, module_files in projects.iteritems():
+            if directory not in directories_projects:
+                directories_projects[directory] = {}
+            if project not in directories_projects[directory]:
+                directories_projects[directory][project] = {}
+            directories_projects[directory][project] = module_files
+    return directories_projects
 
 def dquery_module_namespace(module_filename):
     return os.path.basename(module_filename)[:-7]
 
-#TODO: rename
-@memoize
-@pickle_memoize
-def dquery_build_modules(drupal_root, module_dir, cache=True):
+#TODO: info kanns godtyckligt har, borde bara vara projekt -> projektnamn -> modulefiler
+#TODO: ah, we set info here because we get it anyway, but because of memoizing it
+# should not matter
+#TODO: dquery_find_projects better name? dquery_scan_projects?
+# dquery_extract_projects?
+def dquery_directory_discover_projects(drupal_root, directory, cache=True):
+    projects= {}
+    #TODO: perhaps dquery_module_info is contrived, not to hard to just get info
+    # when we need it?
+    for module_file_abspath, module_info in dquery_modules_info(directory, cache=cache).iteritems():
+        module_namespace = dquery_module_namespace(module_file_abspath)
+        module_file_relpath = os.path.relpath(module_file_abspath, drupal_root)
 
-    modules = {}
+        #TODO: should this hack be removed, or considered feature?
+        if module_file_relpath.find('modules/') == 0:
+            module_info['project'] = 'drupal'
 
-    modules_project_missing = []
+        if 'project' in module_info:
+            project = module_info['project']
 
-    for module_filename, info_data in dquery_get_modules(module_dir).iteritems():
-        module_namespace = dquery_module_namespace(module_filename)
-        filename = os.path.relpath(module_filename, drupal_root)
-        
-        #temporary workaround
-        if os.path.relpath(module_filename, drupal_root).find('modules/') == 0:
-            info_data['project'] = 'drupal'
+            if not project in projects:
+                projects[project] = []
 
-        if 'project' in info_data:
-            project = info_data['project']
-
-            #if not module_namespace in project_mapping:
-                #project_mapping[module_namespace] = project
-
-            if not project in modules:
-                modules[project] = {}
-
-            if not module_namespace in modules[project]:
-                modules[project][module_namespace] = {
-                    'filename' : filename,
-                    'info' : info_data
-                }
-            else:
-                print 'error, duplicate module ' + module_namespace + ' in module directory ' + module_dir
-
+            # check if project/module exist and warn??
+            projects[project].append(module_file_abspath)
         else:
-            modules_project_missing.append((module_namespace, filename))
-            #print 'no project: ' + info_data['name']
+            #This is the only place we should warn about missing project?
+            #modules_project_missing.append((module_namespace, filename))
+            print 'no project: ' + module_file_relpath
+    return projects
 
-    module_map = {}
-    
-    for project in modules:
-        project_files = []
-        for module_namespace in modules[project]:
-            project_files.append(modules[project][module_namespace]['filename'])
-            
-        project_directory = os.path.commonprefix(project_files)
-
-        if not os.path.isdir(project_directory):
-            project_directory = os.path.dirname(project_directory)
-             
-        module_map[project] = {
-            'directory' : os.path.normpath(project_directory),
-            'modules' : modules[project]
-        }
-
-    return (module_map, modules_project_missing)
-
-@pickle_memoize
-def dquery_build_project_mapping(drupal_root, cache=True):
+#TODO remove build from function name?
+def dquery_project_mapping(drupal_root, cache=True):
     project_mapping = {}
-    module_directories = dquery_drupal_module_directories(drupal_root)
-
+    #TODO: remove drupal from function name?
+    module_directories = dquery_drupal_module_directories(drupal_root, cache=cache)
     for module_dir in module_directories:
-        for module_filename, info in dquery_get_modules(module_dir, cache=cache).iteritems():
-            #temporary workaround
-            if os.path.relpath(module_filename, drupal_root).find('modules/') == 0:
-                info['project'] = 'drupal'
-
-            if 'project' in info:
-                module_namespace = dquery_module_namespace(module_filename)
-                project_mapping[module_namespace] = info['project']
-                project_mapping[module_filename] = info['project']
-
+        projects = dquery_directory_discover_projects(drupal_root, directory, cache=cache)
+        for project, module_files in projects.iteritems():
+            for module_file in module_files:
+                module_namespace = dquery_module_namespace(module_file)
+                project_mapping[module_namespace] = project
     return project_mapping
 
+#TODO: rename, according to what this does, do we even whant to do it?
+#TODO: module_dir, inconsistent naming, directory?
+
+#TODO: better name
+def dquery_files_directory(files):
+    directory = os.path.commonprefix(files)
+    if not os.path.isdir(directory):
+        directory = os.path.dirname(directory)
+    #TODO: wrong to normalize here?
+    return os.path.normpath(directory)
 
 #TODO: if package all function in class, drupal_root can be provided as class property etc
 #TODO: arg just one site?
@@ -487,24 +438,21 @@ def dquery_build_module_usage_graph(drupal_root, site_directories = [], cache=Tr
 
     module_directories = dquery_drupal_module_directories(drupal_root, include_sites=False, cache=cache)
 
-    #TODO: list comprehension?
-    #TODO: set default all dirs here instead?
     for site_dir in site_directories:
         module_directories.append(os.path.join(site_dir, 'modules'))
  
-    #TODO: rename variable, project_tree, module_tree??
-    module_map = dquery_modules_list(drupal_root, module_directories)
+    directories_projects = dquery_directories_discover_projects(drupal_root, module_directories, cache=cache)
 
-    project_mapping = dquery_build_project_mapping(drupal_root, cache=cache)
+    project_mapping = dquery_project_mapping(drupal_root, cache=cache)
 
     usage_graph = {}
 
-    for project in module_map:
+    for project in directories_projects:
         usage_graph[project] = {
             'sites' : set(),
             'modules' : {} # project_info #TODO really need this? Should just build usage
         }
-        for module_directory, project_info in module_map[project].iteritems():
+        for module_directory, project_info in directories_projects[project].iteritems():
             for module_namespace, module_info in project_info['modules'].iteritems():
                 filename = module_info['filename']
                 if module_namespace not in usage_graph[project]['modules']:
@@ -534,20 +482,19 @@ def dquery_build_module_usage_graph(drupal_root, site_directories = [], cache=Tr
             for row in result:
                 #TODO: replace with try catch indextjohejsan since 2xfaster
                 info = {}
-                """
-                try:
+
+                #try:
                     #This is slow as fuck
-                    info = phpserialize.loads(row['info'], decode_strings=True)
-                    if row['name'] == 'uc_auriga':
-                        print info
-                        exit()
-                except ValueError as e:
-                    print 'value error'
-                    print row['filename']
-                    print row['info']
-                    print type(row['info'])
-                    exit()
-                """
+                    #info = phpserialize.loads(row['info'], decode_strings=True)
+                    #if row['name'] == 'uc_auriga':
+                     #   print info
+                      #  exit()
+                #except ValueError as e:
+                    #print 'value error'
+                    #print row['filename']
+                    #print row['info']
+                    #print type(row['info'])
+                    #exit()
 
                 module_namespace = row['name']
                 filename = row['filename']
@@ -577,14 +524,11 @@ def dquery_build_module_usage_graph(drupal_root, site_directories = [], cache=Tr
 
                 #else:
                     #print 'not found: ' + row['name']
-            
-            
             connection.close()
 
         except DatabaseError as e:
             #Fix proper error-output/logging
             print ''.join(['Error: failed connecting to ', site, ':', repr(e)])
-
     return usage_graph
 
 def dquery_drupal_module_directories(drupal_root, include_sites=True, cache=True):
@@ -597,15 +541,6 @@ def dquery_drupal_module_directories(drupal_root, include_sites=True, cache=True
             module_directories.append(os.path.join(site, 'modules'))
     return module_directories
 
-
-#rename dquery_action_site, or dquery_module_sites, dquery_subcommand_site etc?
-def dquery_sites(args):
-    #TODO: we igore cache here since no real speed difference, how make this clear to the user?
-    for site in dquery_discover_sites(args.drupal_root, cache=False):
-        print dquery_format_site(site, args.drupal_root, args.format)
-
-#def dquery_get_drupal_context():
-      # Check if we are inside drupal context
 #TODO: rename subdirectory
 """
 def is_subdir_of(subdirectory, directory):
@@ -649,7 +584,6 @@ def module_directories_from_context(drupal_root, cache=True):
         #otherwise, default to all known module directories
         return module_directories
 
-
 def dquery_drupal_update_info_data(project, compatibility):
     update_url = 'http://updates.drupal.org/release-history'
     url = '/'.join([update_url, project, compatibility])
@@ -690,49 +624,175 @@ def dquery_drupal_update_recommended_release(project, compatibility, cache=True)
         default_major = tree.xpath('/project/default_major/text()')
         major = default_major[0]
 
-        
     recommended_release = tree.xpath('/project/releases/release[version_major = $major][1]', major = major)[0]
     version = recommended_release.xpath('version/text()')[0]
     tag = recommended_release.xpath('tag/text()')[0]
     f.close()
     return {'version' : str(version), 'tag' : str(tag)}
 
-def dquery_projects(args):
-    module_directories = args.module_directories if\
-            args.module_directories is not None else\
-            module_directories_from_context(args.drupal_root, args.use_cache)
-    module_map = dquery_modules_list(args.drupal_root, module_directories, cache=args.use_cache)
-   
-    if args.update_status is not None:
-        compatibility = dquery_drupal_core_compatibility(args.drupal_root)
 
-    projects = args.projects if len(args.projects) else module_map.keys()
-    for project in projects:
-        for projects_dir in module_map[project]:
-            version = ''
-            project_dir = module_map[project][projects_dir]['directory']
-            for module_namespace, module_info in module_map[project][projects_dir]['modules'].iteritems():
-                if 'version' in module_info['info']:
-                    version = module_info['info']['version']
-                    break
-            #TODO: fix, for now just testing
-            if args.update_status is not None:
-                update_info = dquery_drupal_update_recommended_release(project, compatibility, cache=True)
-                if update_info is not None and update_info['version'] != version:
-                    print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir, 'status: latest version is ' + update_info['version']])
-                else:
-                    print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir, 'status: no updates available'])
-            elif args.format is not None:
-                replacements = {
-                    'project' : project,
-                    'version' : version,
-                    'directory' : project_dir
-                }
-                #Just testing
-                #Just try except here and we should be safe
-                print args.format.format(**replacements)
-            else:
-                print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir])
+#TODO: how handle cache here?
+def dquery_build_multisite_xml(drupal_root, cache=True):
+    root = lxml.etree.Element('drupal-multisite', version="fluid")
+    module_directories = dquery_drupal_module_directories(drupal_root, cache=cache)
+    directories_projects = dquery_directories_discover_projects(drupal_root, module_directories, cache=cache)
+
+    for directory, projects in directories_projects.iteritems():
+        directory_element = dquery_directory_element(root, directory, drupal_root)
+
+        for project, module_files in projects.iteritems():
+            """
+            project_directory = dquery_files_directory(module_files)
+            project_directory_element = dquery_directory_element(
+                directory_element,
+                project_directory,
+                drupal_root)
+            """
+            dquery_build_multisite_xml_project(
+                directory_element,
+                project,
+                directory,
+                module_files,
+                drupal_root)
+            """
+            project_element = dquery_project_element(project_directory_element,
+                    project, module_files)
+            dquery_directory_tree(module_files_relpaths)
+
+            for module_file in module_files:
+                dquery_module_element(project_element, module_file)
+            """
+
+    print lxml.etree.tostring(root, pretty_print=True)
+
+def dquery_build_multisite_xml_project(parent, name, directory_root, module_files, drupal_root):
+    project_element = dquery_project_element(parent, name, module_files)
+    module_files_relpaths = [os.path.relpath(module_file, directory_root) for module_file in module_files]
+    #or is this just silly, could build this structure though os.walk?
+    directory_tree = dquery_directory_tree(module_files_relpaths)
+    dquery_build_multisite_xml_project_modules(project_element, directory_root, directory_tree, drupal_root)
+
+#TODO: Rename directory_root to current_directory?
+def dquery_build_multisite_xml_project_modules(parent, directory_root, directory_tree, drupal_root):
+    module_files, directories = directory_tree
+
+    for module_file in module_files:
+        module_file_abspath = os.path.join(directory_root, module_file)
+        dquery_module_element(parent, module_file_abspath)
+
+    for directory_name, directory_tree in directories.iteritems():
+        directory_abspath = os.path.join(directory_root, directory_name)
+        directory_element = dquery_directory_element(
+                parent,
+                directory_abspath,
+                drupal_root)
+        dquery_build_multisite_xml_project_modules(
+                directory_element,
+                directory_abspath,
+                directory_tree,
+                drupal_root)
+
+#is relative shit
+#what kind of perverted semi recursion is this
+def dquery_directory_tree(filepaths):
+    directory_tree = ([], {})
+    for filepath in filepaths:
+        _dquery_directory_tree(filepath.split(os.sep), directory_tree)
+    return directory_tree
+
+#here filepaths are split by filepath separator
+def _dquery_directory_tree(split_filepath, directory_tree):
+    #for split_filepath in split_filepaths:
+        head, tail = split_filepath[0], split_filepath[1:]
+        files, directories = directory_tree
+        if not tail:
+            #head is filename
+            #if not 'files' in directory_tree:
+                #directory_tree['files'] = []
+            #directory_tree['files'].append(head)
+            files.append(head)
+        else:
+            #if not 'dirs' in directory_tree:
+                #directory_tree['dirs'] = {}
+            #if not head in directories['dirs']:
+            if not head in directories:
+                directories[head] = ([], {})
+            #_dquery_directory_tree(tail, directory_tree['dirs'][head])
+            _dquery_directory_tree(tail, directories[head])
+
+def dquery_directory_element(parent, abspath, drupal_root):
+    return lxml.etree.SubElement(
+        parent,
+        'directory',
+        name=os.path.basename(abspath),
+        abspath=abspath,
+        relpath=os.path.relpath(abspath, drupal_root))
+
+def dquery_project_element(parent, name, module_files):
+    #Loop though module files and grap the first version info that makes senes
+    #Seems there is no other sane way of extracting project info?
+    attributes = {}
+    for module_file_abspath in module_files:
+        attributes = dquery_module_element_version_info(module_file_abspath)
+        if(len(attributes)):
+            break
+    attributes['name'] = name
+    return lxml.etree.SubElement(parent, 'project', **attributes)
+
+#rename?
+def dquery_module_element_version_info(module_file_abspath):
+    info = dquery_module_info(module_file_abspath)
+    module_element_info = {}
+    if 'core' in info:
+        module_element_info['core'] = info['core']
+    if 'version' in info:
+        module_element_info['version'] = info['version']
+        version_info = dquery_parse_project_version(info['version'])
+        # oh shit, this should be on project
+        if version_info is not None:
+            # Add "stable" as status if version-status not set?
+            if not version_info['status'] is None:
+                module_element_info['status'] = version_info['status']
+            if not version_info['major'] is None:
+                module_element_info['version-major'] = version_info['major']
+            if not version_info['patch'] is None:
+                module_element_info['version-patch'] = version_info['patch']
+            #Good idea to set core if not set?
+    return module_element_info
+
+#TODO: module info etc
+def dquery_module_element(parent, module_file_abspath):
+    attributes = dquery_module_element_version_info(module_file_abspath)
+    attributes['name'] = dquery_module_namespace(module_file_abspath)
+    return lxml.etree.SubElement(
+            parent,
+            'module',
+            **attributes)
+
+# returns Core compabillity (or None), major and patch and development status
+def dquery_parse_project_version(version):
+    project_version_re = regex_cache(r"""
+        (?:(?P<core>\d+\.\w+)-)?                #Core compability, this is sometimes part of version string
+        (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
+        (?:-(?P<status>.+))?                    #Development status, may be "dev","alpha" "rc-1" etc
+    """, re.X)
+    match = project_version_re.match(version)
+    if match is None:
+        print "Invalid project version string: " + version
+    else:
+        return match.groupdict()
+
+#TODO: split into util.py and lib.py, util is the one beeing used, lib
+# dependency for utils
+
+# <project name="user" version="6.22" version-major="6" version-patch="22" mdhash="234234234234">
+def dquery_multisite_xml_project(parent, **kwargs):
+    #validation.. fuck it
+    pass
+
+def dquery_build_projects_xml(drupal_root, cache=True):
+    pass
+
 
 def dquery_format_site(site_abspath, drupal_root, format):
     if format == 'basename':

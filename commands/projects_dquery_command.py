@@ -39,6 +39,7 @@ def dquery_projects_command(args):
             else:
                 print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir])
 
+
 dquery_projects_command.add_argument('--module-directories', dest='module_directories', metavar='MODULE_DIRECTORIES', type=str, nargs='*', help='Module directories')
 dquery_projects_command.add_argument('--format', dest='format', metavar='PYTHON_FORMAT {blabla}', type=str, help='Format')
 #TODO: some sort of action api/formalization? 'list'/'update_status' so forth, subsubcommands? dquery projects list, dquery projects update-status etc? Probably good idea
