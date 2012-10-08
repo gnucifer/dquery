@@ -5,7 +5,8 @@
 import sys
 import cli.app #TODO
 import fnmatch
-
+import yaml
+from cli.profiler import Profiler
 from lib import *
 
 #import inspect
@@ -131,12 +132,13 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
                 dest='verbose',
                 action='store_true'
                 )
-
+        
+        """
         self.argparser.add_argument('-p', '--pipe',
                 dest='pipe',
                 action='store_true'
                 ) # this can be auto-detected? Yes, but that is a bad idea
-
+        """
         #TODO: mutually exlusive with sub-commands?
         self.argparser.add_argument('--no-cache',
                 dest='use_cache',
@@ -303,14 +305,18 @@ class DqueryCommandLineApp(DqueryCommandLineMixin, cli.app.Application):
         DqueryCommandLineMixin.setup(self)
 
 
+#profiler = Profiler(stdout=sys.stdout)
+
 @DqueryCommandLineApp(
-        name="dquery",
-        version="0.1.0-alpha",
-        description="Drupal query tool"
-    )
+    name="dquery",
+    version="0.1.0-alpha",
+    description="Drupal query tool")
+#@profiler.deterministic
 def dquery_application(app):
     #dispatch to function
-    app.params.func(app.params)
+    output = app.params.func(app.params)
+    #dispatch to formatter, should formatter or I print?
+    app.params.formatter(output)
 
 subparsers = dquery_application.argparser.add_subparsers(
     title='commands',
@@ -325,17 +331,41 @@ class dQueryCommand(object):
         #self.parser_kwargs = kwargs
     #def before_parse(slef, argsparse):
     #def after_parse(self, args):
+    """
     def add_param(self, *args, **kwargs):
         action = self.argparser.add_argument(*args, **kwargs)
         self.actions[action.dest] = action
         return action
-    #def parse_args(self, argsparser):
+    """
     def __call__(self, f):
         self.argparser.set_defaults(func=f)
+        #Return self?
         return self.argparser
 
+from dquery.commands import *
+
+def dquery_default_formatter(output):
+    print yaml.dump(output, default_flow_style=False)
+
+dquery_application.argparser.set_defaults(formatter=dquery_default_formatter)
+formatters_group = dquery_application.argparser.add_mutually_exclusive_group(required=False)
+
+#dquery_application.argparser.add_argument('-f', '--format', default=
+
+class dQueryFormatter(object):
+    def __init__(self, format_name):
+        self.name = format_name
+    def __call__(self, f):
+        formatters_group.add_argument(
+            '--' + self.name,
+            dest='formatter',
+            action='store_const',
+            const=f)
+
+from dquery.formatters import *
 
 #TODO: helper function, get command-plugin directories, error handling
+"""
 import imp
 modules = []
 script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -357,5 +387,5 @@ for filename in subcommand_files:
         print 'printing exception'
         print e
         exit()
+"""
 
-from dquery.commands import *
