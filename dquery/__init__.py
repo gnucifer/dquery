@@ -2,7 +2,7 @@ import os
 from fnmatch import fnmatch
 
 __project__ = "dquery"
-__version__ = "devel"
+__version__ = "dev"
 __package__ = "dquery"
 __description__ = "Drupal query tool inspired by gentoo's equery"
 __author__ = "David Gustafsson"

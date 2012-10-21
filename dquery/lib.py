@@ -260,19 +260,16 @@ def dquery_drupal_core_compatibility(drupal_root):
 @memoize
 @pickle_memoize
 def dquery_discover_sites(drupal_root, cache=True):
-    sites = []
     sites_directory = os.path.join(drupal_root, 'sites')
-    for f in os.listdir(sites_directory):
-        if f != 'all':
-            filename = os.path.join(sites_directory, f)
-            if os.path.isdir(filename) and not os.path.islink(filename):
-                for sf in os.listdir(filename):
-                    if sf == 'settings.php':
-                        #yield filename
-                        sites.append(filename)
-                        #break
-
+    sites = []
+    for f in [os.path.join(sites_directory, f) for f in os.listdir(sites_directory) if f != 'all']:
+        if os.path.isdir(f) and not os.path.islink(f):
+            if dquery_is_site_directory(f):
+                sites.append(f)
     return frozenset(sites)
+
+def dquery_is_site_directory(dirpath):
+    return os.path.isfile(os.path.join(dirpath, 'settings.php'))
 
 @memoize
 @pickle_memoize
@@ -685,7 +682,7 @@ def dquery_build_projects_xml(drupal_root, cache=True):
     pass
 
 
-def dquery_format_site(site_abspath, drupal_root, format):
+def dquery_format_site(format, drupal_root, site_abspath):
     if format == 'basename':
         return os.path.basename(site_abspath)
     if format == 'uri':
