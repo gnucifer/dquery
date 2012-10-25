@@ -1,5 +1,13 @@
-dist/
+/dist/
+/dquery/cache/
+/bin/
+!/bin/dquery
+/MANIFEST
+/core
+/include
+/lib
+/lib64
 *.py[co]
 *.swp
 *.egg-info
-dquery/cache
+
