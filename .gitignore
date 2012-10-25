@@ -2,3 +2,4 @@ dist/
 *.py[co]
 *.swp
 *.egg-info
+dquery/cache
