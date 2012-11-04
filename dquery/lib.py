@@ -46,7 +46,7 @@ from sqlalchemy.exc import DatabaseError
 class DQueryException(Exception):
     pass
 
-class DQueryInvalidModuleError(DQueryException):
+class DQueryMissingInfoFileError(DQueryException):
     pass
 
 def dquery_get_project(module_namespace):
@@ -318,16 +318,44 @@ def dquery_modules_info(path, cache=True):
         modules[module_filename] = dquery_module_info(module_filename)
     return modules
 
+
+#TODO: correct inconsistent naming, filename, filepaths, path, abs_filepaths etc
+def dquery_partition_by_project(files_abspaths, project_type):
+    projects_files = {}
+    for file_abspath in files_abspaths:
+        info = None
+        try:
+            info = dquery_project_info(file_abspath, project_type)
+            if 'project' in info and 'version' in info:
+                project = info['project'] + '-' + info['version']
+                if not project in projects_files:
+                    projects_files[project] = []
+                projects_files[project].append(file_abspath)
+            else:
+                print 'warning no project' # Where to print this?
+        except DQueryException as e:
+            #TODO: print this in verbose/debug mode?
+            print e.message
+    return projects_files
+
+def dquery_project_info(filename, project_type):
+    if project_type == 'module':
+        return dquery_module_info(filename)
+    elif project_type == 'theme':
+        return dquery_open_info_file(filename)
+
 def dquery_module_info(module_filename):
     info_filename = ''.join([module_filename[:-6], 'info'])
-    print info_filename
+    return dquery_open_info_file(info_filename)
+
+def dquery_open_info_file(info_filename):
     try:
         with open(info_filename) as f:
             data = f.read()
             info_data = drupal_parse_info_format(data)
             return info_data
     except IOError:
-        raise DQueryInvalidModuleError(
+        raise DQueryMissingInfoFileError(
         "Missing info file \"{info_filename}\".".\
             format(info_filename=info_filename))
 
@@ -391,6 +419,11 @@ def drupal_parse_info_format(data):
 
 def dquery_module_namespace(module_filename):
     return os.path.basename(module_filename)[:-7]
+
+def dquery_theme_namespace(theme_info_filename):
+    return os.path.basename(theme_info_filename)[:-5]
+
+
 
 #TODO: dquery_find_projects better name? dquery_scan_projects?
 # dquery_extract_projects?
