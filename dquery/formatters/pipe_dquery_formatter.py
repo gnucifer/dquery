@@ -1,6 +1,6 @@
 from dquery.application import dQueryFormatter
 #TODO: replace with some kind of table printing formatter?
-@dQueryFormatter('pipe')
+@dQueryFormatter('pipe', True)
 def dquery_pipe_formatter(output):
     if type(output) is list:
         for line in output:

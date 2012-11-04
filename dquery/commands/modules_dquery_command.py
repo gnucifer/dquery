@@ -4,7 +4,11 @@ from dquery.lib import *
 
 @dQueryCommand('modules', help='list modules')
 def dquery_modules_command(args):
-    module_directories = dquery_drupal_module_directories(args.drupal_root, cache=args.use_cache)
+    module_directories = dquery_drupal_system_directories(
+        args.drupal_root,
+        'modules',
+        cache=args.use_cache)
+
     module_map = dquery_modules_list(args.drupal_root, module_directories, cache=args.use_cache)
     for project in module_map:
         for projects_dir in module_map[project]:

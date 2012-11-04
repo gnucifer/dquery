@@ -26,97 +26,142 @@ def dquery_build_multisite_xml_etree(drupal_root, cache=True):
 
     root = lxml.etree.Element('drupal-multisite', version="fluid")
 
-    module_directories = dquery_drupal_module_directories(drupal_root, cache=cache)
-    directories_projects = dquery_directories_discover_projects(drupal_root, module_directories, cache=cache)
+    dquery_build_multisite_xml_module_projects(root, drupal_root, cache=cache)
+    #dquery_build_multisite_xml_theme_projects(root, drupal_root, cache=cache)
 
-    for directory, projects in directories_projects.iteritems():
-        directory_element = dquery_directory_element(root, directory, drupal_root)
-
-        for project, module_files in projects.iteritems():
-            """
-            project_directory = dquery_files_directory(module_files)
-            project_directory_element = dquery_directory_element(
-                directory_element,
-                project_directory,
-                drupal_root)
-            """
-            module_files_relpaths = [os.path.relpath(module_file, directory) for module_file in module_files]
-            directory_tree = dquery_directory_tree(module_files_relpaths)
-
-            dquery_build_multisite_xml_project(
-                directory_element,
-                project,
-                module_files,
-                directory,
-                directory_tree,
-                drupal_root)
-            """
-            project_element = dquery_project_element(project_directory_element,
-                    project, module_files)
-            dquery_directory_tree(module_files_relpaths)
-
-            for module_file in module_files:
-                dquery_module_element(project_element, module_file)
-            """
     with open(cache_filename, 'w') as cache_file:
         multisite_etree = lxml.etree.ElementTree(root)
         multisite_etree.write(cache_file)
 
     return root
 
-def dquery_build_multisite_xml_project(parent, name, module_files, directory_root, directory_tree, drupal_root):
-    #module_files_relpaths = [os.path.relpath(module_file, directory_root) for module_file in module_files]
-    #directory_tree = dquery_directory_tree(module_files_relpaths)
-    directory_module_files, directories = directory_tree
-    if directory_module_files:
-        #module files???
-        project_element = dquery_project_element(parent, name, module_files)
-        #or is this just silly, could build this structure though os.walk?
-        dquery_build_multisite_xml_project_modules(project_element, directory_root, directory_tree, drupal_root)
+
+def dquery_build_multisite_xml_theme_projects(etree_root, drupal_root, cache=True):
+
+    theme_directories = dquery_drupal_system_directories(
+            drupal_root,
+            'themes',
+            cache=cache)
+
+
+def dquery_build_multisite_xml_module_projects(etree_root, drupal_root, cache=True):
+
+    module_directories = dquery_drupal_system_directories(
+            drupal_root,
+            'modules',
+            cache=cache)
+
+    module_files = []
+
+    for directory in module_directories:
+
+        etree_context = etree_root
+
+        directory_relpath = os.path.relpath(directory, drupal_root)
+        etree_context = dquery_build_multisite_xml_directories(
+            etree_context, directory_relpath, drupal_root, drupal_root)
+
+        module_files = dquery_scan_directory_modules(
+            directory, cache=cache)
+
+        #TODO: break out in function?
+        projects_module_files = {}
+        #partition by project
+        for module_file_abspath in module_files:
+            info = None
+            try:
+                info = dquery_module_info(module_file_abspath)
+                if 'project' in info and 'version' in info:
+                    project = info['project'] + '-' + info['version']
+                    if not project in projects_module_files:
+                        projects_module_files[project] = []
+                    projects_module_files[project].append(module_file_abspath)
+                else:
+                    print 'warning no project' # Where to print this?
+            except DQueryException as e:
+                #TODO: print this in verbose/debug mode?
+                print e.message
+
+        for project, module_files in projects_module_files.items():
+
+            project_etree_context = etree_context
+
+            project_directory = dquery_files_directory(module_files)
+
+            if project_directory != directory:
+                directory_relpath = os.path.relpath(project_directory, directory)
+                project_etree_context = dquery_build_multisite_xml_directories(
+                    project_etree_context, directory_relpath, directory, drupal_root)
+
+            module_files_relpaths = [os.path.relpath(module_file, project_directory) for module_file in module_files]
+            modules_dir_tree = dquery_directory_tree(module_files_relpaths)
+
+            dquery_build_multisite_xml_etree_project(
+                    module_files[0], project_etree_context, modules_dir_tree, project_directory, drupal_root)
+
+def dquery_build_multisite_xml_directories(
+        etree_context, directory_relpath, base_abspath, drupal_root):
+    #TODO: or perform relpath check here?
+    #directory_relpath = os.path.relpath(directory_abspath, drupal_root)
+    directory_components = directory_relpath.split(os.sep)
+
+    for i in range(1, len(directory_components) + 1):
+        dir_abspath = os.path.join(
+            base_abspath,
+            os.sep.join(directory_components[0:i]))
+        etree_context = dquery_build_multisite_xml_directory(
+            etree_context,
+            dir_abspath,
+            drupal_root)
+    return etree_context
+
+
+def dquery_build_multisite_xml_directory(etree_context, directory_abspath, drupal_root):
+    """
+    for directory_elem in lxml.etree.ElementDepthFirstIterator(
+            etree_context, tag='directory'):
+    """
+
+    for directory_elem in etree_context.iterchildren(tag='directory'):
+        if directory_elem.get('abspath') == directory_abspath:
+            etree_context = directory_elem
+            break
     else:
-        for directory_name, directory_tree in directories.items():
-            directory_abspath = os.path.join(directory_root, directory_name)
-            directory_element = dquery_directory_element(
-                    parent,
-                    directory_abspath,
-                    drupal_root)
-            dquery_build_multisite_xml_project(
-                    directory_element,
-                    name,
-                    module_files,
-                    directory_abspath,
-                    directory_tree,
-                    drupal_root)
-    #print module_file
-    #print directories
-    #exit()
-    #print directory_root
-    #project_element = dquery_project_element(parent, name, module_files)
-    #or is this just silly, could build this structure though os.walk?
-    #dquery_build_multisite_xml_project_modules(project_element, directory_root, directory_tree, drupal_root)
+        etree_context = dquery_directory_element(
+            etree_context, directory_abspath, drupal_root)
 
-#TODO: Rename directory_root to current_directory?
-def dquery_build_multisite_xml_project_modules(parent, directory_root, directory_tree, drupal_root):
-    module_files, directories = directory_tree
+    return etree_context
 
-    for module_file in module_files:
-        module_file_abspath = os.path.join(directory_root, module_file)
-        dquery_module_element(parent, module_file_abspath)
+def dquery_build_multisite_xml_etree_project(
+        module_file_abspath, etree_context, directory_tree, current_dir, drupal_root):
+    etree_context = dquery_project_element(
+        etree_context, module_file_abspath)
+    dquery_build_multisite_xml_etree_project_modules(
+        etree_context, directory_tree, current_dir, drupal_root)
 
-    for directory_name, directory_tree in directories.iteritems():
-        directory_abspath = os.path.join(directory_root, directory_name)
-        directory_element = dquery_directory_element(
-                parent,
+def dquery_build_multisite_xml_etree_project_modules(
+        etree_context, directory_tree, current_dir, drupal_root):
+
+    directory_module_files, directories = directory_tree
+
+    if directory_module_files:
+        for module_file in directory_module_files:
+            module_file_abspath = os.path.join(current_dir, module_file)
+            dquery_module_element(etree_context, module_file_abspath)
+    for directory_name, directory_tree in directories.items():
+        directory_abspath = os.path.join(drupal_root, current_dir, directory_name)
+        modules_etree_context = dquery_build_multisite_xml_directory(
+                etree_context,
                 directory_abspath,
                 drupal_root)
-        dquery_build_multisite_xml_project_modules(
-                directory_element,
-                directory_abspath,
+        dquery_build_multisite_xml_etree_project_modules(
+                modules_etree_context,
                 directory_tree,
+                directory_abspath,
                 drupal_root)
 
-#is relative shit
 #what kind of perverted semi recursion is this
+#filepaths MUST be filepahts, no empty dirs allowed!
 def dquery_directory_tree(filepaths):
     directory_tree = ([], {})
     for filepath in filepaths:
@@ -130,14 +175,8 @@ def _dquery_directory_tree(split_filepath, directory_tree):
         files, directories = directory_tree
         if not tail:
             #head is filename
-            #if not 'files' in directory_tree:
-                #directory_tree['files'] = []
-            #directory_tree['files'].append(head)
             files.append(head)
         else:
-            #if not 'dirs' in directory_tree:
-                #directory_tree['dirs'] = {}
-            #if not head in directories['dirs']:
             if not head in directories:
                 directories[head] = ([], {})
             #_dquery_directory_tree(tail, directory_tree['dirs'][head])
@@ -151,15 +190,37 @@ def dquery_directory_element(parent, abspath, drupal_root):
         abspath=abspath,
         relpath=os.path.relpath(abspath, drupal_root))
 
-def dquery_project_element(parent, name, module_files):
-    #Loop though module files and grap the first version info that makes senes
-    #Seems there is no other sane way of extracting project info?
+#rename?
+def dquery_module_element_version_info(module_file_abspath):
+    info = dquery_module_info(module_file_abspath)
+    module_element_info = {}
+    module_element_info['name'] = info['project']
+    if 'core' in info:
+        module_element_info['core'] = info['core']
+    if 'version' in info:
+        module_element_info['version'] = info['version']
+        version_info = dquery_parse_project_version(info['version'])
+        # oh shit, this should be on project
+        if version_info is not None:
+            # Add "stable" as status if version-status not set?
+            if not version_info['status'] is None:
+                module_element_info['status'] = version_info['status']
+            if not version_info['major'] is None:
+                module_element_info['version-major'] = version_info['major']
+            if not version_info['patch'] is None:
+                module_element_info['version-patch'] = version_info['patch']
+            #Good idea to set core if not set?
+    return module_element_info
+
+def dquery_module_element(parent, module_file_abspath):
+    attributes = dquery_module_element_version_info(module_file_abspath)
+    attributes['name'] = dquery_module_namespace(module_file_abspath)
+    return lxml.etree.SubElement(
+            parent,
+            'module',
+            **attributes)
+
+def dquery_project_element(parent, module_file_abspath):
     attributes = {}
-    for module_file_abspath in module_files:
-        attributes = dquery_module_element_version_info(module_file_abspath)
-        if(len(attributes)):
-            break
-    attributes['name'] = name
+    attributes = dquery_module_element_version_info(module_file_abspath)
     return lxml.etree.SubElement(parent, 'project', **attributes)
-
-

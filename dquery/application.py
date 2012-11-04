@@ -344,25 +344,23 @@ class dQueryCommand(object):
 
 from dquery.commands import *
 
-def dquery_default_formatter(output):
-    print yaml.dump(output, default_flow_style=False)
-
-dquery_application.argparser.set_defaults(formatter=dquery_default_formatter)
 formatters_group = dquery_application.argparser.add_mutually_exclusive_group(required=False)
 
-#dquery_application.argparser.add_argument('-f', '--format', default=
-
 class dQueryFormatter(object):
-    def __init__(self, format_name):
+    def __init__(self, format_name, default=False):
         self.name = format_name
+        self.default = default
     def __call__(self, f):
         formatters_group.add_argument(
             '--' + self.name,
             dest='formatter',
             action='store_const',
             const=f)
+        if self.default:
+            dquery_application.argparser.set_defaults(formatter=f)
 
 from dquery.formatters import *
+
 
 #TODO: helper function, get command-plugin directories, error handling
 """
