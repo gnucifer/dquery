@@ -7,7 +7,7 @@ setup(
     author_email='david.gustafsson@xelera.se',
     packages=find_packages(),
     include_package_data=True,
-    scripts=['bin/dquery'],
+    scripts=['bin/dquery', 'bin/dquery_php_var_json'],
     url='http://pypi.python.org/pypi/DQuery/',
     download_url='https://github.com/david-xelera/dquery/tarball/master',
     license='GPL',
