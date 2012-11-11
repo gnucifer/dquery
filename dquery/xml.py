@@ -1,6 +1,7 @@
 from dquery.lib import *
 import lxml.etree
 from cli.profiler import Profiler
+import warnings
 
 def dquery_build_multisite_xml(drupal_root, pretty_print=True, cache=True):
     xml_etree = dquery_build_multisite_xml_etree(drupal_root, cache)
@@ -77,8 +78,9 @@ def dquery_extensions_usage(drupal_root, cache=True):
                 extensions_usage[extension].append((site_abspath, extension_status))
             connection.close()
         except DatabaseError as e:
-            #Fix proper error-output/logging
-            print ''.join(['Error: failed connecting to ', site_abspath, ':', repr(e)])
+            message = 'failed connecting to {!r}: {!r}'
+            warnings.warn(message.format(site_abspath, e))
+
     return extensions_usage
 
 #TODO: replace 
@@ -90,7 +92,6 @@ def dquery_build_multisite_xml_sites(etree_root, drupal_root, cache=True):
         if not extension_type in xpaths:
             xpaths[extension_type] = lxml.etree.XPath(
                 '//' + extension_type + "[@relpath = $relpath][1]")
-            print xpaths
         #other possible way to pick first element of result? there is always
         #only one
         elements = xpaths[extension_type](etree_root, relpath=extension_relpath)
@@ -98,13 +99,15 @@ def dquery_build_multisite_xml_sites(etree_root, drupal_root, cache=True):
         for e in elements:
             etree_context = e
         if etree_context is None:
-            pass
-            #if debug
             sites = []
-            for site, _ in extension_usage_info:
-                sites.append(site)
-            print extension_relpath + 'is listed in the system table for' + \
-            site[0] + 'but could not found by DQuery'
+            for site_abspath, _ in extension_usage_info:
+                sites.append(os.path.basename(site_abspath))
+            #TODO: better message
+            message = ("{!r} is in the system table of"
+                ": {!s}, but DQuery has been unable to find it")
+            warnings.warn(
+                message.format(os.path.join(drupal_root, extension_relpath), ','.join(sites)),
+                DQueryWarning)
         else:
             for site_abspath, extension_status in extension_usage_info:
                 dquery_extension_usage_element(
