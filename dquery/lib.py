@@ -91,9 +91,9 @@ def drupal_settings_variable_json(filename, variable):
         if php_process.returncode == 1:
             print 'Error: variable ' + variable + ' not found in ' + filename
         elif php_process.returncode:
-            print 'Error: unkown error for ' + variable + ' in ' + filename
+            print 'Error: unknown error for ' + variable + ' in ' + filename
         else:
-            variable_json = json.loads(data)
+            variable_json = json.loads(data, encoding='ascii')
             return variable_json;
     except subprocess.CalledProcessError as e:
         print e
@@ -157,6 +157,7 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
     if drupal_settings is None:
         print 'Error: no settings for ' + drupal_settings_filename
         return None
+
 
     db_type_mapping = {
         'mysqli' : 'mysql',
@@ -266,10 +267,9 @@ def dquery_drupal_core_compatibility(drupal_root):
     exit()
 
 #TODO return paths, absolute or relative??
-#TODO: rename dquery_scan_sites
 @memoize
 @pickle_memoize
-def dquery_discover_sites(drupal_root, cache=True):
+def dquery_sites_scan(drupal_root, cache=True):
     sites_directory = os.path.join(drupal_root, 'sites')
     sites = []
     for f in [os.path.join(sites_directory, f) for f in os.listdir(sites_directory) if f != 'all']:
@@ -284,10 +284,10 @@ def dquery_is_site_directory(dirpath):
 def dquery_scan_directory_modules(abspath, **kwargs):
     #We are a little bit less permissive module-name wise than drupal since I don't
     #know how to do unicode ranges in fnmatch.filter
-    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z_]*.module')
+    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z0-9_]*.module')
 
 def dquery_scan_directory_themes(abspath, **kwargs):
-    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z_]*.info')
+    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z0-9_]*.info')
 
 
 #'/^' . DRUPAL_PHP_FUNCTION_PATTERN . '\.module$/'
@@ -423,51 +423,6 @@ def dquery_module_namespace(module_filename):
 def dquery_theme_namespace(theme_info_filename):
     return os.path.basename(theme_info_filename)[:-5]
 
-
-
-#TODO: dquery_find_projects better name? dquery_scan_projects?
-# dquery_extract_projects?
-@memoize
-@pickle_memoize
-def dquery_directory_discover_projects(drupal_root, directory, cache=True):
-    projects= {}
-    #TODO: perhaps dquery_module_info is contrived, not to hard to just get info
-    # when we need it?
-    for module_file_abspath, module_info in dquery_modules_info(directory, cache=cache).iteritems():
-        module_namespace = dquery_module_namespace(module_file_abspath)
-        module_file_relpath = os.path.relpath(module_file_abspath, drupal_root)
-
-        #TODO: should this hack be removed, or considered feature?
-        if module_file_relpath.find('modules/') == 0:
-            module_info['project'] = 'drupal'
-
-        if 'project' in module_info:
-            project = module_info['project']
-
-            if not project in projects:
-                projects[project] = []
-
-            # check if project/module exist and warn??
-            projects[project].append(module_file_abspath)
-        else:
-            #This is the only place we should warn about missing project?
-            #modules_project_missing.append((module_namespace, filename))
-            print 'no project: ' + module_file_relpath
-    return projects
-
-#TODO remove build from function name?
-def dquery_project_mapping(drupal_root, cache=True):
-    project_mapping = {}
-    #TODO: remove drupal from function name?
-    module_directories = dquery_drupal_system_directories(drupal_root, 'modules', cache=cache)
-    for module_dir in module_directories:
-        projects = dquery_directory_discover_projects(drupal_root, directory, cache=cache)
-        for project, module_files in projects.iteritems():
-            for module_file in module_files:
-                module_namespace = dquery_module_namespace(module_file)
-                project_mapping[module_namespace] = project
-    return project_mapping
-
 #TODO: rename, according to what this does, do we even whant to do it?
 #TODO: module_dir, inconsistent naming, directory?
 #TODO: better name
@@ -478,117 +433,13 @@ def dquery_files_directory(files):
     #TODO: wrong to normalize here?
     return os.path.normpath(directory)
 
-#TODO: if package all function in class, drupal_root can be provided as class property etc
-#TODO: arg just one site?
-@pickle_memoize
-def dquery_build_module_usage_graph(drupal_root, site_directories = [], cache=True):
-
-    module_directories = dquery_drupal_system_directories(
-        drupal_root,
-        'modules',
-        include_sites=False,
-        cache=cache)
-
-    for site_dir in site_directories:
-        module_directories.append(os.path.join(site_dir, 'modules'))
- 
-    directories_projects = dquery_directories_discover_projects(drupal_root, module_directories, cache=cache)
-
-    project_mapping = dquery_project_mapping(drupal_root, cache=cache)
-
-    usage_graph = {}
-
-    for project in directories_projects:
-        usage_graph[project] = {
-            'sites' : set(),
-            'modules' : {} # project_info #TODO really need this? Should just build usage
-        }
-        for module_directory, project_info in directories_projects[project].iteritems():
-            for module_namespace, module_info in project_info['modules'].iteritems():
-                filename = module_info['filename']
-                if module_namespace not in usage_graph[project]['modules']:
-                    usage_graph[project]['modules'][module_namespace] = {
-                        'sites' : set(),
-                        'filenames' : {}
-                    }
-                if filename\
-                    not in usage_graph[project]['modules'][module_namespace]['filenames']:
-                    usage_graph[project]['modules'][module_namespace]['filenames'][filename] = {
-                        'sites' : set(),
-                        'module_namespace' : module_namespace
-                    }
-
-    drupal_major_version = dquery_drupal_major_version(drupal_root)
-    for site in dquery_discover_sites(drupal_root, cache=cache):
-        #TODO: throw exception instead of checking for none 
-        connection_url = sqlalchemy_connection_url(os.path.join(site, 'settings.php'), drupal_major_version)
-        if connection_url is None:
-            continue 
-        engine = sqlalchemy.create_engine(connection_url + '?charset=utf8&use_unicode=0', encoding='utf-8')
-
-        try:
-            connection = engine.connect()
-            #TODO: new try
-            result = connection.execute('SELECT name, filename, status, info FROM system WHERE status <> 0 AND type = "module"')
-            for row in result:
-                #TODO: replace with try catch indextjohejsan since 2xfaster
-                info = {}
-
-                #try:
-                    #This is slow as fuck
-                    #info = phpserialize.loads(row['info'], decode_strings=True)
-                    #if row['name'] == 'uc_auriga':
-                     #   print info
-                      #  exit()
-                #except ValueError as e:
-                    #print 'value error'
-                    #print row['filename']
-                    #print row['info']
-                    #print type(row['info'])
-                    #exit()
-
-                module_namespace = row['name']
-                filename = row['filename']
-                project = None
-
-                try:
-                    project = project_mapping[module_namespace]
-                except KeyError:
-                    try:
-                        project = project_mapping[filename]
-                    except KeyError:
-                        pass
-                    #print 'not found: ' + row['name']
-
-                if project is not None:
-                    try:
-                        usage_graph[project]['sites'].add(site)
-                        try:
-                            usage_graph[project]['modules'][module_namespace]['sites'].add(site) # + status?
-                            usage_graph[project]['modules'][module_namespace]['filenames'][filename]['sites'].add(site) # + status?
-                        except KeyError:
-                            print 'warning: ' + filename + ' not found for project ' + project
-                    except KeyError:
-                        pass
-                        #print 'Index error: ' + filename
-                        #print modules[project]['modules'][module_namespace]
-
-                #else:
-                    #print 'not found: ' + row['name']
-            connection.close()
-
-        except DatabaseError as e:
-            #Fix proper error-output/logging
-            print ''.join(['Error: failed connecting to ', site, ':', repr(e)])
-    return usage_graph
-
 def dquery_drupal_system_directories(drupal_root, directory, include_sites=True, cache=True):
     module_directories = [] 
     module_directories.append(os.path.join(drupal_root, directory))
     module_directories.append(os.path.join(drupal_root, 'sites/all', directory))
     #TODO: profiles
     if include_sites:
-        for site in dquery_discover_sites(drupal_root, cache=cache):
+        for site in dquery_sites_scan(drupal_root, cache=cache):
             module_directories.append(os.path.join(site, directory))
 
     #TODO: filter file exists?

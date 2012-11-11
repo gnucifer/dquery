@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='DQuery',
-    version='0.0.9',
+    version='0.1.0-dev',
     author='David Gustafsson',
     author_email='david.gustafsson@xelera.se',
     packages=find_packages(),
@@ -17,6 +17,7 @@ setup(
     install_requires=[
         "PyYAML",
         "SQLAlchemy",
+        "MySQL-python",
         "colorama",
         "httplib2",
         "lxml",

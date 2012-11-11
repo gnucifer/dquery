@@ -29,12 +29,86 @@ def dquery_build_multisite_xml_etree(drupal_root, cache=True):
     dquery_build_multisite_xml_module_projects(root, drupal_root, cache=cache)
     dquery_build_multisite_xml_theme_projects(root, drupal_root, cache=cache)
 
+    dquery_build_multisite_xml_sites(root, drupal_root, cache=cache)
+
+
     with open(cache_filename, 'w') as cache_file:
         multisite_etree = lxml.etree.ElementTree(root)
         multisite_etree.write(cache_file)
 
     return root
 
+
+def dquery_extensions_usage(drupal_root, cache=True):
+    drupal_major_version = dquery_drupal_major_version(drupal_root)
+    #In lack of a better name
+    extensions_usage = {}
+    for site_abspath in dquery_sites_scan(drupal_root, cache=cache):
+        connection_url = sqlalchemy_connection_url(os.path.join(site_abspath, 'settings.php'), drupal_major_version)
+        if connection_url is None:
+            continue
+
+        connection_string = connection_url.encode('utf-8') + '?charset=utf8&use_unicode=0'
+        #connection_string = connection_url + '?charset=utf8&use_unicode=0'
+
+        engine = sqlalchemy.create_engine(
+            connection_string,
+            encoding='utf-8')
+
+        try:
+            connection = engine.connect()
+            result = connection.execute(
+                'SELECT name, type, filename, status, info\
+                FROM system WHERE (status <> 0 OR schema_version > -1) AND (type = "module" OR\
+                type="theme")')
+            for row in result:
+                #type note really needed, remove?
+                extension = (row['filename'], row['type'])
+                if not extension in extensions_usage:
+                    extensions_usage[extension] = []
+                #TODO: this mapping is a bit presumtuous
+                extension_status = None
+                status = int(row['status'])
+                if(status == 1):
+                    extension_status = 'enabled'
+                else:
+                    extension_status = 'disabled'
+                #TODO: no need to use site_abspath here, name should be enough?
+                extensions_usage[extension].append((site_abspath, extension_status))
+            connection.close()
+        except DatabaseError as e:
+            #Fix proper error-output/logging
+            print ''.join(['Error: failed connecting to ', site_abspath, ':', repr(e)])
+    return extensions_usage
+
+#TODO: replace 
+def dquery_build_multisite_xml_sites(etree_root, drupal_root, cache=True):
+    extensions_usage = dquery_extensions_usage(drupal_root, cache=cache)
+    xpaths = {}
+    for extension, extension_usage_info in extensions_usage.items():
+        extension_relpath, extension_type = extension
+        if not extension_type in xpaths:
+            xpaths[extension_type] = lxml.etree.XPath(
+                '//' + extension_type + "[@relpath = $relpath][1]")
+            print xpaths
+        #other possible way to pick first element of result? there is always
+        #only one
+        elements = xpaths[extension_type](etree_root, relpath=extension_relpath)
+        etree_context = None
+        for e in elements:
+            etree_context = e
+        if etree_context is None:
+            pass
+            #if debug
+            sites = []
+            for site, _ in extension_usage_info:
+                sites.append(site)
+            print extension_relpath + 'is listed in the system table for' + \
+            site[0] + 'but could not found by DQuery'
+        else:
+            for site_abspath, extension_status in extension_usage_info:
+                dquery_extension_usage_element(
+                    etree_context, os.path.basename(site_abspath), extension_status)
 
 def dquery_build_multisite_xml_theme_projects(etree_root, drupal_root, cache=True):
 
@@ -132,12 +206,12 @@ def dquery_build_multisite_xml_directories(
         etree_context, directory_relpath, base_abspath, drupal_root):
     #TODO: or perform relpath check here?
     #directory_relpath = os.path.relpath(directory_abspath, drupal_root)
-    directory_components = directory_relpath.split(os.sep)
+    directory_extensions = directory_relpath.split(os.sep)
 
-    for i in range(1, len(directory_components) + 1):
+    for i in range(1, len(directory_extensions) + 1):
         dir_abspath = os.path.join(
             base_abspath,
-            os.sep.join(directory_components[0:i]))
+            os.sep.join(directory_extensions[0:i]))
         etree_context = dquery_build_multisite_xml_directory(
             etree_context,
             dir_abspath,
@@ -177,7 +251,8 @@ def dquery_build_multisite_xml_etree_module_project_modules(
     if directory_module_files:
         for module_file in directory_module_files:
             module_file_abspath = os.path.join(current_dir, module_file)
-            dquery_module_element(etree_context, module_file_abspath)
+            dquery_module_element(
+                etree_context, module_file_abspath, drupal_root)
     for directory_name, directory_tree in directories.items():
         directory_abspath = os.path.join(drupal_root, current_dir, directory_name)
         modules_etree_context = dquery_build_multisite_xml_directory(
@@ -198,7 +273,7 @@ def dquery_build_multisite_xml_etree_theme_project_themes(
     if directory_theme_files:
         for theme_file in directory_theme_files:
             theme_file_abspath = os.path.join(current_dir, theme_file)
-            dquery_theme_element(etree_context, theme_file_abspath)
+            dquery_theme_element(etree_context, theme_file_abspath, drupal_root)
     for directory_name, directory_tree in directories.items():
         directory_abspath = os.path.join(drupal_root, current_dir, directory_name)
         themes_etree_context = dquery_build_multisite_xml_directory(
@@ -286,18 +361,33 @@ def dquery_theme_element_version_info(theme_file_abspath):
             #Good idea to set core if not set?
     return theme_element_info
 
+def dquery_extension_usage_element(parent, site_name, extension_status):
+    attributes = {}
+    attributes['site_name'] = site_name
+    #How handle site aliases, etc?
+    attributes['site_uri'] = 'http://' + site_name
+    attributes['status'] = extension_status
+    return lxml.etree.SubElement(
+            parent,
+            'usage',
+            **attributes)
 
-def dquery_module_element(parent, module_file_abspath):
+def dquery_module_element(parent, module_file_abspath, drupal_root):
     attributes = dquery_module_element_version_info(module_file_abspath)
     attributes['name'] = dquery_module_namespace(module_file_abspath)
+    attributes['abspath'] = module_file_abspath
+    attributes['relpath'] = os.path.relpath(module_file_abspath, drupal_root)
     return lxml.etree.SubElement(
             parent,
             'module',
             **attributes)
 
-def dquery_theme_element(parent, theme_file_abspath):
+def dquery_theme_element(parent, theme_file_abspath, drupal_root):
     attributes = dquery_theme_element_version_info(theme_file_abspath)
     attributes['name'] = dquery_theme_namespace(theme_file_abspath)
+    attributes['abspath'] = theme_file_abspath
+    attributes['relpath'] = os.path.relpath(theme_file_abspath, drupal_root)
+
     return lxml.etree.SubElement(
             parent,
             'theme',

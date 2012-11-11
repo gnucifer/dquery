@@ -10,6 +10,11 @@ def dquery_module_info_command(args):
     else:
         module_abspath = os.path.join(args.drupal_root, args.module_path)
     info = dquery_module_info(module_abspath)
-    print yaml.dump(info, default_flow_style=False)
+    if args.key:
+        #TODO: try and possibly give proper error message
+        info = info[args.key]
+    return info
 
 dquery_module_info_command.add_argument('module_path', type=str, help='Path to module to display info for')
+dquery_module_info_command.add_argument(
+    '--key', type=str, help='Extract certain key from info file')
