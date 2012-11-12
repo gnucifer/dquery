@@ -94,11 +94,11 @@ def drupal_settings_variable_json(filename, variable):
 
         # Replace with constants
         if php_process.returncode == 1:
-            message = 'variable {!r} not found in {!r}'
+            message = 'variable {0!r} not found in {1!r}'
             raise DQueryException(
                 message.format(variable, filename))
         elif php_process.returncode:
-            message = 'unknown error extracting variable {!r} from {!r}'
+            message = 'unknown error extracting variable {0!r} from {1!r}'
             raise DQueryException(
                 message.format(variable, filename))
         else:
@@ -116,13 +116,13 @@ def drupal6_db_settings(filename):
         if 'default' in db_url:
             db_url = db_url['default']
         else:
-            DQueryException('no default database in {!r}'.format(filename))
+            DQueryException('no default database in {0!r}'.format(filename))
     if isinstance(db_url, basestring):
         match = d6_db_url_re.match(db_url)
         return match.groupdict()
     else:
         #or just warn?
-        raise DQueryException('invalid db_url in {!r}'.format(filename))
+        raise DQueryException('invalid db_url in {0!r}'.format(filename))
 
 def drupal7_db_settings(filename):
     databases = drupal_settings_variable_json(filename, 'databases')
@@ -142,9 +142,9 @@ def drupal7_db_settings(filename):
                 'database' : default_db['database']
              }
         except KeyError:
-            DQueryException('no default database in {!r}'.format(filename))
+            DQueryException('no default database in {0!r}'.format(filename))
     else:
-        DQueryException('invalid databases variable in {!r}'.format(filename))
+        DQueryException('invalid databases variable in {0!r}'.format(filename))
 
 
 #TODO: replace version number with constant?
@@ -155,7 +155,7 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
         drupal_settings = drupal7_db_settings(drupal_settings_filename)
     else:
         raise DQueryException(
-            'invalid drupal version: {!r}'.format(drupal_version))
+            'invalid drupal version: {0!r}'.format(drupal_version))
 
     db_type_mapping = {
         'mysqli' : 'mysql',
@@ -184,7 +184,7 @@ def sqlalchemy_connection_url(drupal_settings_filename, drupal_version):
 
     else:
         raise DQueryException(
-            'invalid db type: {!r} in {!r}'.format(
+            'invalid db type: {0!r} in {1!r}'.format(
                 drupal_settings['type'], drupal_settings_filename))
 
 @memoize
@@ -320,7 +320,7 @@ def dquery_partition_by_project(files_abspaths, project_type):
                     projects_files[project] = []
                 projects_files[project].append(file_abspath)
             else:
-                message = '{!r} has no project information and will ignored'
+                message = '{0!r} has no project information and will ignored'
                 warnings.warn(message.format(file_abspath), DQueryWarning)
         except DQueryException as e:
             warnings.warn(e.message, DQueryWarning)
@@ -345,7 +345,7 @@ def dquery_open_info_file(info_filename):
             return info_data
     except IOError:
         raise DQueryMissingInfoFileError(
-            "Missing info file: {!r}".\
+            "Missing info file: {0!r}".\
             format(info_filename))
 
 def dquery_valid_drupal_root(directory):
@@ -502,12 +502,12 @@ def dquery_drupal_update_recommended_release(project, compatibility, cache=True)
     #with context manager possible for f?
     try:
         if len(error):
-            message = 'error requesting update information for {!r}: {!r}'
+            message = 'error requesting update information for {0!r}: {1!r}'
             raise DQueryException(message.format(project, error[0]))
         project_status = tree.xpath('/project/project_status/text()')[0]
         #just hacking this together for now
         if project_status == 'unsupported':
-            message = 'project {!r} is unsupported'
+            message = 'project {0!r} is unsupported'
             raise DQueryException(message.format(project))
         #Check drupal logic for this
         recommended_major = tree.xpath('/project/recommended_major/text()')
@@ -537,7 +537,7 @@ def dquery_parse_project_version(version):
     match = project_version_re.match(version)
     if match is None:
         warnings.warn(
-            "invalid project version string: {!r}".format(version),
+            "invalid project version string: {0!r}".format(version),
             DQueryWarning)
     else:
         return match.groupdict()

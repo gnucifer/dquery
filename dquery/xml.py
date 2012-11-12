@@ -78,7 +78,7 @@ def dquery_extensions_usage(drupal_root, cache=True):
                 extensions_usage[extension].append((site_abspath, extension_status))
             connection.close()
         except DatabaseError as e:
-            message = 'failed connecting to {!r}: {!r}'
+            message = 'failed connecting to {0!r}: {1!r}'
             warnings.warn(message.format(site_abspath, e))
 
     return extensions_usage
@@ -103,8 +103,8 @@ def dquery_build_multisite_xml_sites(etree_root, drupal_root, cache=True):
             for site_abspath, _ in extension_usage_info:
                 sites.append(os.path.basename(site_abspath))
             #TODO: better message
-            message = ("{!r} is in the system table of"
-                ": {!s}, but DQuery has been unable to find it")
+            message = ("{0!r} is in the system table of"
+                ": {1!s}, but DQuery has been unable to find it")
             warnings.warn(
                 message.format(os.path.join(drupal_root, extension_relpath), ','.join(sites)),
                 DQueryWarning)
