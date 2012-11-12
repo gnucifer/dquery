@@ -86,8 +86,7 @@ def pickle_memoize(f):
 
 #TODO: This should thow an exception if variable not found!!
 def drupal_settings_variable_json(filename, variable):
-    #command = ['php', 'json_settings.php', filename, variable];
-    command = ['php_var_json', filename, variable];
+    command = ['dquery_php_var_json', filename, variable];
     try:
         #db_url_data = subprocess.check_output(command) # only works in python 2.7+
         php_process = subprocess.Popen(command, stdout=subprocess.PIPE) # .communicate()[0]
