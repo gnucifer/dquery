@@ -269,27 +269,36 @@ def dquery_sites_scan(drupal_root, cache=True):
 def dquery_is_site_directory(dirpath):
     return os.path.isfile(os.path.join(dirpath, 'settings.php'))
 
+#TODO: order of argument of other functions that takes extension_type should be
+# consistent, extension_type first so easier to map with partial
+def dquery_scan_directory_extensions(extension_type, abspath, **kwargs):
+    if extension_type == 'module':
+        return dquery_scan_directory_modules(abspath, **kwargs)
+    elif extension_type == 'theme':
+        return dquery_scan_directory_themes(abspath, **kwargs)
+    else:
+        raise DQueryException(
+            'invalid extension type: {0!r}'.format(extension_type))
+
 def dquery_scan_directory_modules(abspath, **kwargs):
     #We are a little bit less permissive module-name wise than drupal since I don't
     #know how to do unicode ranges in fnmatch.filter
-    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z0-9_]*.module')
+    return dquery_scan_directory(
+        abspath, '[a-zA-z_][a-zA-Z0-9_]*.module', **kwargs)
 
 def dquery_scan_directory_themes(abspath, **kwargs):
-    return dquery_scan_directory(abspath, '[a-zA-z_][a-zA-Z0-9_]*.info')
+    return dquery_scan_directory(
+        abspath, '[a-zA-z_][a-zA-Z0-9_]*.info', **kwargs)
 
 
 #'/^' . DRUPAL_PHP_FUNCTION_PATTERN . '\.module$/'
+#TODO: implement min_depth!
+#TODO: verify cache works as expected
 def dquery_scan_directory(abspath, mask, min_depth=1, cache=True):
     files = []
     for root, dirnames, filenames in os.walk(abspath):
         for basename in fnmatch.filter(filenames, mask):
             files.append(os.path.join(root, basename))
-            """
-            if os.path.isfile(os.path.join(root, basename[:-6] + 'info')):
-            else:
-                #replace with logging or debug option
-                print 'Missing info file for' + basename
-            """
     return files
 
 #TODO!!
@@ -308,12 +317,12 @@ def dquery_modules_info(path, cache=True):
 
 
 #TODO: correct inconsistent naming, filename, filepaths, path, abs_filepaths etc
-def dquery_partition_by_project(files_abspaths, project_type):
+def dquery_partition_by_project(files_abspaths, extension_type):
     projects_files = {}
     for file_abspath in files_abspaths:
         info = None
         try:
-            info = dquery_project_info(file_abspath, project_type)
+            info = dquery_project_info(file_abspath, extension_type)
             if 'project' in info and 'version' in info:
                 project = info['project'] + '-' + info['version']
                 if not project in projects_files:
@@ -326,12 +335,26 @@ def dquery_partition_by_project(files_abspaths, project_type):
             warnings.warn(e.message, DQueryWarning)
     return projects_files
 
+#TODO: good idea?
+#TODO: utilize in xml.py?
+def dquery_extension_directory(extension_type):
+    if extension_type == 'module':
+        return 'modules'
+    elif extension_type == 'theme':
+        return 'themes'
+    else:
+        raise DQueryException(
+            'invalid extension type: {0!r}'.format(extension_type))
 
-def dquery_project_info(filename, project_type):
-    if project_type == 'module':
+#TODO: fix order of argument, extension_type first
+def dquery_project_info(filename, extension_type):
+    if extension_type == 'module':
         return dquery_module_info(filename)
-    elif project_type == 'theme':
+    elif extension_type == 'theme':
         return dquery_open_info_file(filename)
+    else:
+        raise DQueryException(
+            'invalid extension type: {0!r}'.format(extension_type))
 
 def dquery_module_info(module_filename):
     info_filename = ''.join([module_filename[:-6], 'info'])
