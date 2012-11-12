@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='DQuery',
-    version='0.1.0-alpha',
+    version='0.1.0-beta',
     author='David Gustafsson',
     author_email='david.gustafsson@xelera.se',
     packages=find_packages(),
