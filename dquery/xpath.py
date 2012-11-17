@@ -1,7 +1,7 @@
 from dquery.lib import *
 from dquery.xml import *
 
-from cli.profiler import Profiler
+#from cli.profiler import Profiler
 
 import lxml.etree
 

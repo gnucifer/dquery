@@ -64,25 +64,37 @@ def memoize(f, cache={}):
             cache[key] = f(*args, **kwargs)
         return cache[key]
     return g
-
+#TODO: We have one unresolved "problem" if cache=True in default arguemnt list,
+#it will not be present in **kwargs (if not supplied in function call), find out
+#how to handle this, right now only explicit use of cache=True works in function
+#calls
 def pickle_memoize(f):
     def g(*args, **kwargs):
+        if not ('cache' in kwargs and kwargs['cache']):
+            return f(*args, **kwargs)
         #TODO: things will get fucked up if fuction decorated aka is g?
         key = ( f.__name__, tuple(args), frozenset(kwargs.items()) )
         script_dir = os.path.dirname(os.path.realpath(__file__))
-        cache_filename = os.path.join(script_dir, 'cache', ''.join([str(key.__hash__()), '.', f.__name__]))
-        #cache_filename = os.path.join('cache', str(key.__hash__()))
-        #TODO: handle missing cache keyword etc
-        if kwargs['cache'] and os.path.isfile(cache_filename):
+        cache_filename = os.path.join(script_dir, '.cache', ''.join([str(key.__hash__()), '.', f.__name__]))
+        if os.path.isfile(cache_filename):
             with open(cache_filename, 'r') as cache_file:
                 result = pickle.load(cache_file)
         else:
             result = f(*args, **kwargs)
-            with open(cache_filename, 'w') as cache_file:
-                pickle.dump(result, cache_file)
+            try:
+                with open(cache_filename, 'w') as cache_file:
+                    pickle.dump(result, cache_file)
+            except IOError as e:
+                if not os.path.isdir(
+                        os.path.join(script_dir, 'cache')):
+                    raise DQueryException(('You need to manually create DQuery\'s '
+                        'cache directory {0!r} and ensure it has the appropriate '
+                        'permissions. Run command with --no-cache to bypass '
+                        'this error.').format(os.path.join(script_dir, '.cache')))
+                else:
+                    raise e
         return result
     return g
-
 
 #TODO: This should thow an exception if variable not found!!
 def drupal_settings_variable_json(filename, variable):
@@ -258,6 +270,8 @@ def dquery_drupal_core_compatibility(drupal_root):
 @memoize
 @pickle_memoize
 def dquery_sites_scan(drupal_root, cache=True):
+    if not cache:
+        print 'wft'
     sites_directory = os.path.join(drupal_root, 'sites')
     sites = []
     for f in [os.path.join(sites_directory, f) for f in os.listdir(sites_directory) if f != 'all']:

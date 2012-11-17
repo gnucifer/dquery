@@ -6,7 +6,7 @@ import sys
 import cli.app #TODO
 import fnmatch
 import yaml
-from cli.profiler import Profiler
+#from cli.profiler import Profiler
 from lib import *
 
 #import inspect
@@ -17,37 +17,6 @@ init()
 
 __all__ = ["dquery_application", "dquery_command", "dQueryCommand"]
 
-"""
-dquery_commands = []
-
-def dquery_command(subcommand):
-    print 'registring command'
-    print subcommand
-    dquery_commands.append(subcommand)
-    return subcommand
-
-def dquery_depends(args):
-    print 'depends'
-    print args
-
-def dquery_belongs(args):
-    print 'belongs'
-    print args
-
-def dquery_projects(args):
-    module_directories = dquery_drupal_module_directories(args.drupal_root, cache=args.use_cache)
-    module_map = dquery_modules_list(args.drupal_root, module_directories, cache=args.use_cache)
-    projects = args.projects if len(args.projects) else module_map.keys
-    for project in projects:
-        for projects_dir in module_map[project]:
-            version = ''
-            project_dir = module_map[project][projects_dir]['directory']
-            for module_namespace, module_info in module_map[project][projects_dir]['modules'].iteritems():
-                if 'version' in module_info['info']:
-                    version = module_info['info']['version']
-                    break
-            print ', '.join(['project:' + project, 'version:' + version, 'directory:' + project_dir])
-"""
 class DqueryCommandLineMixin(cli.app.CommandLineMixin):
 
     ## Customization/plugin methods, allows for mixins to provide extra
@@ -132,7 +101,7 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
                 dest='verbose',
                 action='store_true'
                 )
-        
+
         """
         self.argparser.add_argument('-p', '--pipe',
                 dest='pipe',
@@ -143,126 +112,16 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
         self.argparser.add_argument('--no-cache',
                 dest='use_cache',
                 action='store_false',
-                help='Do not use the internal dquery cache'
+                help='Do not use the internal DQuery cache'
                 )
 
         self.argparser.add_argument(
                 '--clear-cache',
                 dest='clear_cache',
                 action='store_true',
-                help='Clear the interal dquery cache'
+                help='Clear the interal DQuery cache'
             )
 
-        #self.argparser.add_argument('module_directories', metavar='MODULE_DIRECTORY',  type=str, nargs='*', help='Module directories')
-        
-        #for subcommand in self._load_subcommands():
-
-
-
-        """
-        from dquery.commands import *
-        usage_dquery_command.test()
-        print sys.modules.keys()
-        exit()
-        """
-
-        """
-        print dquery.commands.__package__
-
-        print dquery.commands.usage_dquery.test()
-
-        for subcommand in dquery.commands.__all__:
-            print subcommand
-            ##print dir(getattr(dquery.commands, subcommand))
-        print dir(dquery.commands)
-        exit()
-        """
-
-        #print dir(subcommands)
-        #print subcommands.modules.keys()
-        #exit()
-        
-        """
-        subparsers = self.argparser.add_subparsers(
-                title='commands',
-                help='sub-command help'
-                )#, description='valid subcommands')
-
-        parser_sites = subparsers.add_parser('sites',
-                help='list sites'
-                )
-
-        parser_sites.add_argument('-f, --format',
-                dest='format',
-                choices=['uri', 'relpath', 'abspath', 'basename'],
-                default='uri',
-                help='Site output format'
-                )
-
-        #TODO: how make parseargs save as frozenset instead of list
-        parser_sites.set_defaults(func=dquery_sites)
-
-        parser_projects = subparsers.add_parser('projects',
-                help='list projects'
-                )
-
-        parser_projects.add_argument('projects',
-                metavar='PROJECT',
-                type=str, nargs='*',
-                help='Limit results'
-                )
-
-        parser_projects.set_defaults(func=dquery_projects)
-        
-        parser_modules = subparsers.add_parser('modules',
-                help='list modules'
-                )
-
-        parser_modules.add_argument('module_namespaces',
-                metavar='MODULE',
-                type=str,
-                nargs='*',
-                help='Limit results'
-                )
-
-        parser_modules.set_defaults(func=dquery_modules)
-
-        parser_module_info = subparsers.add_parser('module-info',
-                help='display module info'
-                )
-
-        parser_module_info.add_argument('module_path',
-                type=str,
-                help='Path to module to display info for'
-                )
-
-        #TODO: how make parseargs save as frozenset instead of list
-        parser_module_info.set_defaults(func=dquery_module_info_action)
-        parser_depends = subparsers.add_parser(
-                'depends',
-                help='depends help'
-                )
-
-        parser_depends.add_argument(
-                '--baz',
-                choices='XYZ',
-                help='baz help'
-                )
-
-        parser_depends.set_defaults(func=dquery_depends)
-
-        parser_belongs = subparsers.add_parser(
-                'belongs',
-                help='belongs help'
-                )
-        parser_belongs.add_argument(
-                'bar',
-                type=int,
-                help='baz help'
-                )
-
-        parser_belongs.set_defaults(func=dquery_belongs)
-        """
         self.setup_args()
 
 
@@ -276,9 +135,11 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
             if dquery_valid_drupal_root(drupal_root):
                 self.params.drupal_root = drupal_root
             else:
-                #TODO: python string formatting, gah
-                self.argparser.error(drupal_root + ' does not appear to be a valid drupal root directory')
-
+                #TODO: Catch all DDquery errors and use argparser.error instaed
+                #TODO: investigate possiblilities to override error methods with
+                #pretty printing, colors and other fabulous stuff
+                message = '{0!r} does not appear to be a valid Drupal root directory'
+                self.argparser.error(message.format(drupal_root))
         except Exception as e:
             self.argparser.error(str(e))
 
@@ -360,7 +221,6 @@ class dQueryFormatter(object):
             dquery_application.argparser.set_defaults(formatter=f)
 
 from dquery.formatters import *
-
 
 #TODO: helper function, get command-plugin directories, error handling
 """

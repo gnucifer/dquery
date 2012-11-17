@@ -1,6 +1,6 @@
 from dquery.lib import *
 import lxml.etree
-from cli.profiler import Profiler
+#from cli.profiler import Profiler
 import warnings
 
 def dquery_build_multisite_xml(drupal_root, pretty_print=True, cache=True):
@@ -13,32 +13,30 @@ def dquery_build_multisite_xml(drupal_root, pretty_print=True, cache=True):
 #@profiler.deterministic
 def dquery_build_multisite_xml_etree(drupal_root, cache=True):
     #TODO: get function name etc
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    cache_filename = os.path.join(
-        script_dir,
-        'cache',
-        ''.join([str(drupal_root.__hash__()), '.dquery_build_multisite_xml_etree.xml']))
+    if cache:
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        cache_filename = os.path.join(
+            script_dir,
+            '.cache',
+            ''.join([str(drupal_root.__hash__()), '.dquery_build_multisite_xml_etree.xml']))
 
-    #TODO: error handling
-    if cache and os.path.isfile(cache_filename):
-        with open(cache_filename, 'r') as cache_file:
-            etree_from_file = lxml.etree.parse(cache_file)
-            return etree_from_file.getroot()
+        #TODO: error handling
+        if os.path.isfile(cache_filename):
+            with open(cache_filename, 'r') as cache_file:
+                etree_from_file = lxml.etree.parse(cache_file)
+                return etree_from_file.getroot()
 
-    root = lxml.etree.Element('drupal-multisite', version="fluid")
-
+    root = lxml.etree.Element('drupal-multisite', version="0.0.1")
     dquery_build_multisite_xml_module_projects(root, drupal_root, cache=cache)
     dquery_build_multisite_xml_theme_projects(root, drupal_root, cache=cache)
-
     dquery_build_multisite_xml_sites(root, drupal_root, cache=cache)
 
-
-    with open(cache_filename, 'w') as cache_file:
-        multisite_etree = lxml.etree.ElementTree(root)
-        multisite_etree.write(cache_file)
+    if cache:
+        with open(cache_filename, 'w') as cache_file:
+            multisite_etree = lxml.etree.ElementTree(root)
+            multisite_etree.write(cache_file)
 
     return root
-
 
 def dquery_extensions_usage(drupal_root, cache=True):
     drupal_major_version = dquery_drupal_major_version(drupal_root)
