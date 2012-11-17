@@ -270,8 +270,6 @@ def dquery_drupal_core_compatibility(drupal_root):
 @memoize
 @pickle_memoize
 def dquery_sites_scan(drupal_root, cache=True):
-    if not cache:
-        print 'wft'
     sites_directory = os.path.join(drupal_root, 'sites')
     sites = []
     for f in [os.path.join(sites_directory, f) for f in os.listdir(sites_directory) if f != 'all']:
