@@ -1,5 +1,5 @@
 /dist/
-/dquery/cache/
+/dquery/.cache/
 /bin/
 !/bin/dquery
 /MANIFEST
