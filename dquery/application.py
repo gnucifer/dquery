@@ -13,7 +13,7 @@ from lib import *
 #TODO: rename module-usage to usage, or perhaps present tense, using?
 from colorama import init
 init()
-#import dquery
+from dquery import settings as dquery_settings
 
 __all__ = ["dquery_application", "dquery_command", "dQueryCommand"]
 
@@ -144,10 +144,8 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
             self.argparser.error(str(e))
 
         if  self.params.clear_cache:
-            script_dir = os.path.dirname(os.path.realpath(__file__))
-            cache_dir = os.path.join(script_dir, 'cache')
-            for basename in os.listdir(cache_dir):
-                filename = os.path.join(cache_dir, basename)
+            for basename in os.listdir(dquery_settings.cache_dir_abspath):
+                filename = os.path.join(dquery_settings.cache_dir_abspath, basename)
                 try:
                     if os.path.isfile(filename):
                         os.unlink(filename)

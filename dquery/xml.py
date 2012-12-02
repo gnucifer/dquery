@@ -2,6 +2,7 @@ from dquery.lib import *
 import lxml.etree
 #from cli.profiler import Profiler
 import warnings
+from dquery import settings as dquery_settings
 
 def dquery_build_multisite_xml(drupal_root, pretty_print=True, cache=True):
     xml_etree = dquery_build_multisite_xml_etree(drupal_root, cache)
@@ -16,8 +17,7 @@ def dquery_build_multisite_xml_etree(drupal_root, cache=True):
     if cache:
         script_dir = os.path.dirname(os.path.realpath(__file__))
         cache_filename = os.path.join(
-            script_dir,
-            '.cache',
+            dquery_settings.cache_dir_abspath,
             ''.join([str(drupal_root.__hash__()), '.dquery_build_multisite_xml_etree.xml']))
 
         #TODO: error handling

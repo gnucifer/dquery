@@ -40,6 +40,7 @@ except:
 from sqlalchemy.exc import DatabaseError
 #from phpserialize import *
 #from time import clock, time
+from dquery import settings as dquery_settings
 
 #Exceptions
 
@@ -74,23 +75,23 @@ def pickle_memoize(f):
             return f(*args, **kwargs)
         #TODO: things will get fucked up if fuction decorated aka is g?
         key = ( f.__name__, tuple(args), frozenset(kwargs.items()) )
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        cache_filename = os.path.join(script_dir, '.cache', ''.join([str(key.__hash__()), '.', f.__name__]))
-        if os.path.isfile(cache_filename):
-            with open(cache_filename, 'r') as cache_file:
+        #script_dir = os.path.dirname(os.path.realpath(__file__))
+        cache_file_abspath = os.path.join(dquery_settings.cache_dir_abspath, ''.join([str(key.__hash__()), '.', f.__name__]))
+        if os.path.isfile(cache_file_abspath):
+            with open(cache_file_abspath, 'r') as cache_file:
                 result = pickle.load(cache_file)
         else:
             result = f(*args, **kwargs)
             try:
-                with open(cache_filename, 'w') as cache_file:
+                with open(cache_file_abspath, 'w') as cache_file:
                     pickle.dump(result, cache_file)
             except IOError as e:
                 if not os.path.isdir(
-                        os.path.join(script_dir, 'cache')):
+                        dquery_settings.cache_dir_abspath):
                     raise DQueryException(('You need to manually create DQuery\'s '
                         'cache directory {0!r} and ensure it has the appropriate '
                         'permissions. Run command with --no-cache to bypass '
-                        'this error.').format(os.path.join(script_dir, '.cache')))
+                        'this error.').format(dquery_settings.cache_dir_abspath))
                 else:
                     raise e
         return result
@@ -518,7 +519,7 @@ def module_directories_from_context(drupal_root, cache=True):
 def dquery_drupal_update_info_data(project, compatibility):
     update_url = 'http://updates.drupal.org/release-history'
     url = '/'.join([update_url, project, compatibility])
-    h = httplib2.Http('.cache')
+    h = httplib2.Http(dquery_settings.cache_dir_abspath)
     resp, content = h.request(url, 'GET')
     return content
     #TODO
