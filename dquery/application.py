@@ -144,14 +144,7 @@ class DqueryCommandLineMixin(cli.app.CommandLineMixin):
             self.argparser.error(str(e))
 
         if  self.params.clear_cache:
-            for basename in os.listdir(dquery_settings.cache_dir_abspath):
-                filename = os.path.join(dquery_settings.cache_dir_abspath, basename)
-                try:
-                    if os.path.isfile(filename):
-                        os.unlink(filename)
-                except Exception as e:
-                    print e
-
+           dquery_clear_cache()
 
 class DqueryCommandLineApp(DqueryCommandLineMixin, cli.app.Application):
 

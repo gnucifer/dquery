@@ -97,6 +97,22 @@ def pickle_memoize(f):
         return result
     return g
 
+def dquery_clear_cache(pattern=None):
+    fs = os.listdir(dquery_settings.cache_dir_abspath)
+
+    if not pattern is None:
+        file_regex = regex_cache(pattern)
+        #fs = [f for f in fs if regex.match(f)]
+        fs = filter(file_regex.match, fs)
+
+    for f in fs:
+        abspath = os.path.join(dquery_settings.cache_dir_abspath, f)
+        try:
+            if os.path.isfile(abspath):
+                os.unlink(abspath)
+        except Exception as e:
+            print e
+
 #TODO: This should thow an exception if variable not found!!
 def drupal_settings_variable_json(filename, variable):
     command = ['dquery_php_var_json', filename, variable];
@@ -155,9 +171,9 @@ def drupal7_db_settings(filename):
                 'database' : default_db['database']
              }
         except KeyError:
-            DQueryException('no default database in {0!r}'.format(filename))
+            raise DQueryException('no default database in {0!r}'.format(filename))
     else:
-        DQueryException('invalid databases variable in {0!r}'.format(filename))
+        raise DQueryException('invalid databases variable in {0!r}'.format(filename))
 
 
 #TODO: replace version number with constant?
