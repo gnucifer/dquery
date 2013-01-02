@@ -4,15 +4,15 @@ import lxml.etree
 import warnings
 from dquery import settings as dquery_settings
 
-def dquery_build_multisite_xml(drupal_root, pretty_print=True, cache=True):
-    xml_etree = dquery_build_multisite_xml_etree(drupal_root, cache)
+def dquery_build_multisite_xml(drupal_root, use_database, pretty_print=True, cache=True):
+    xml_etree = dquery_build_multisite_xml_etree(drupal_root, use_database, cache=cache)
     return lxml.etree.tostring(xml_etree, pretty_print=pretty_print)
 
 #TODO: how handle cache here?
 #_Element can't be pickled or some reason, we cache as xml instead
 #profiler = Profiler(stdout=sys.stdout)
 #@profiler.deterministic
-def dquery_build_multisite_xml_etree(drupal_root, cache=True):
+def dquery_build_multisite_xml_etree(drupal_root, use_database, cache=True):
     #TODO: get function name etc
     if cache:
         script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -29,7 +29,8 @@ def dquery_build_multisite_xml_etree(drupal_root, cache=True):
     root = lxml.etree.Element('drupal-multisite', version="0.0.1")
     dquery_build_multisite_xml_module_projects(root, drupal_root, cache=cache)
     dquery_build_multisite_xml_theme_projects(root, drupal_root, cache=cache)
-    dquery_build_multisite_xml_sites(root, drupal_root, cache=cache)
+    if use_database:
+        dquery_build_multisite_xml_sites(root, drupal_root, cache=cache)
 
     if cache:
         with open(cache_filename, 'w') as cache_file:

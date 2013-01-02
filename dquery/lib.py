@@ -252,7 +252,7 @@ def dquery_extract_php_define_const(constant_name, filename):
 #TODO: optimize needed?
 @memoize
 def dquery_drupal_version(drupal_root):
-    drupal_version_re = regex_cache(r"(?P<major>\d+)\.(?P<minor>\d+)")
+    #drupal_version_re = regex_cache(r"(?P<major>\d+)\.(?P<minor>\d+)(?:-(?P<extra>\w+))")
     # D7 stores VERSION in bootstrap.inc. D8 moved that to /core/includes.
     version_constant_filenames = [os.path.join(drupal_root, path)\
             for path in ['modules/system/system.module', 'includes/bootstrap.inc', 'core/includes/bootstrap.inc']]
@@ -261,8 +261,12 @@ def dquery_drupal_version(drupal_root):
         if os.path.isfile(filename):
             result = dquery_extract_php_define_const('VERSION', filename)
             if result is not None:
-                version =  dict(zip(['major', 'minor'], map(int, result.split('.'))))
-                return version
+                version = dquery_parse_project_version(result)
+                #TODO: error handling
+                if 'major' in version and 'patch' in version:
+                    return {'major' : int(version['major']), 'patch' : int(version['patch'])}
+                #version =  dict(zip(['major', 'minor'], map(int, result.split('.'))))
+                #return version
     raise DQueryExcepetion('Drupal version could not be detected')
 
 # Returns the Drupal major version number (6, 7, 8 ...)

@@ -8,8 +8,8 @@ import lxml.etree
 #profiler = Profiler(stdout=sys.stdout)
 #@profiler.deterministic
 #TODO: lazy building
-def dquery_multisite_xml_xpath(drupal_root, xpath_expression, cache=True):
-    xml_etree = dquery_build_multisite_xml_etree(drupal_root, cache=cache)
+def dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=True):
+    xml_etree = dquery_build_multisite_xml_etree(drupal_root, use_database, cache=cache)
     """
     script_dir = os.path.dirname(os.path.realpath(__file__))
     cache_filename = os.path.join(
@@ -27,8 +27,8 @@ def dquery_multisite_xml_xpath(drupal_root, xpath_expression, cache=True):
 
     return xml_etree.xpath(xpath_expression)
 
-def dquery_multisite_xpath_query(drupal_root, xpath_expression, cache=True):
-    result = dquery_multisite_xml_xpath(drupal_root, xpath_expression, cache=cache)
+def dquery_multisite_xpath_query(drupal_root, xpath_expression, use_database, cache=True):
+    result = dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=cache)
     return dquery_xpath_result_to_python(result)
 
 #to_python, to_data, deobjectify, strip_object? ....
