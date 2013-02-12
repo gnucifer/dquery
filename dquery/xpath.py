@@ -23,9 +23,12 @@ def dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cach
             etree_from_file = lxml.etree.parse(cache_file)
             xml_etree = etree_from_file.getroot()
     """
-
-
     return xml_etree.xpath(xpath_expression)
+
+def dquery_multisite_xml_directories_xpath(drupal_root, xpath_expression, use_database, directories, cache=True):
+    conditions = ' or '.join(['@relpath="' + directory + '"' for directory in directories])
+    xpath_expression = '//directory[' + conditions + ']' + xpath_expression
+    return dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=cache)
 
 def dquery_multisite_xpath_query(drupal_root, xpath_expression, use_database, cache=True):
     result = dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=cache)

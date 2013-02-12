@@ -9,7 +9,7 @@ def dquery_module_info_command(args):
         module_abspath = os.path.realpath(args.module_path) 
     else:
         module_abspath = os.path.join(args.drupal_root, args.module_path)
-    info = dquery_module_info(module_abspath)
+    info = _dquery_module_info_file_info(module_abspath)
     if args.key:
         #TODO: try and possibly give proper error message
         info = info[args.key]

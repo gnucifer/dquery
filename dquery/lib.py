@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-
+#TODO: some commands needs to be able to run with no drupal context
+#TODO: implement .dqueryignore?
+#TODO: right now drupal registers as project with path "modules", fix!
 #if sys.stdout.isatty(): + turn off pipe detection
 # + colors
 #TODO: python doc-strings format and inline tests for relevant functions
@@ -19,8 +21,15 @@ import cProfile
 import sys
 import cli #TODO
 import yaml #TODO: would be nice with some colored keys etc
-import httplib2
 import lxml.etree
+import git
+#TODO: add gevent and perhaps urllib2 as dependencies
+from gevent import monkey; monkey.patch_socket()
+import gevent
+import httplib2
+# import urllib2 #TODO: use this instead?
+from functools import partial
+
 #TODO: try catch
 try:
     from cStringIO import cStringIO as StringIO
@@ -50,6 +59,9 @@ class DQueryException(Exception):
 class DQueryMissingInfoFileError(DQueryException):
     pass
 
+class DQueryUpdateInfoTimeout(DQueryException):
+
+    pass
 #Warnings
 
 class DQueryWarning(UserWarning):
@@ -342,13 +354,6 @@ def dquery_paths_reldepth(basepath, path):
     while os.path.split(relpath)
 """
 
-def dquery_modules_info(path, cache=True):
-    modules = {}
-    for module_filename in dquery_discover_modules(path, cache=cache):
-        modules[module_filename] = dquery_module_info(module_filename)
-    return modules
-
-
 #TODO: correct inconsistent naming, filename, filepaths, path, abs_filepaths etc
 def dquery_partition_by_project(files_abspaths, extension_type):
     projects_files = {}
@@ -380,16 +385,47 @@ def dquery_extension_directory(extension_type):
             'invalid extension type: {0!r}'.format(extension_type))
 
 #TODO: fix order of argument, extension_type first
+#TODO: make this extendible? Hook/plugin system?
 def dquery_project_info(filename, extension_type):
+    info = _dquery_project_info_file_info(filename, extension_type)
+    info.update(_dquery_project_info_git_info(filename, extension_type))
+    return info
+
+#TODO: include existing info or not?
+#Extract project, current commit, closest tag?
+def _dquery_project_info_git_info(filename, extension_type):
+    info = {}
+    filename_dir = os.path.dirname(filename)
+    if git.repo.fun.is_git_dir(filename_dir) or True:
+        g = git.Git(filename_dir)
+        try:
+            #TODO: rebuild version
+            git_version = g.describe("--tags")
+            info['git_version'] = git_version
+            fetch_url = g.config("--get", "remote.origin.url")
+            if fetch_url:
+                project = fetch_url.rsplit("/", 1)[1]
+                project = project.split(".git")[0]
+                info['project'] = project
+            repo = git.Repo(filename_dir)
+            commit = git.repo.fun.rev_parse(repo, 'HEAD')
+            info['git_commit'] = commit.hexsha
+        except git.exc.GitCommandError as e:
+            #TODO: check exit status, 128 is not a git repo. Crash on any other status
+            if e.status != 128:
+                raise e
+    return info
+
+def _dquery_project_info_file_info(filename, extension_type):
     if extension_type == 'module':
-        return dquery_module_info(filename)
+        return _dquery_module_info_file_info(filename)
     elif extension_type == 'theme':
         return dquery_open_info_file(filename)
     else:
         raise DQueryException(
             'invalid extension type: {0!r}'.format(extension_type))
 
-def dquery_module_info(module_filename):
+def _dquery_module_info_file_info(module_filename):
     info_filename = ''.join([module_filename[:-6], 'info'])
     return dquery_open_info_file(info_filename)
 
@@ -536,13 +572,31 @@ def module_directories_from_context(drupal_root, cache=True):
         #otherwise, default to all known module directories
         return module_directories
 
-def dquery_drupal_update_info_data(project, compatibility):
+#TODO error handling
+def dquery_drupal_update_info_data(compatibility, project):
     update_url = 'http://updates.drupal.org/release-history'
     url = '/'.join([update_url, project, compatibility])
     h = httplib2.Http(dquery_settings.cache_dir_abspath)
     resp, content = h.request(url, 'GET')
     return content
-    #TODO
+
+from gevent import Timeout
+from gevent.pool import Pool
+#TODO: implement (green)threaded version utilizing gevent
+def dquery_drupal_update_info_projects_data(compatibility, projects, cache=True):
+    #TODO: setting
+    # Give up after 10 minutes
+    update_info_timeout = 5
+    update_info_request_pool_size = 25
+    request_pool = Pool(update_info_request_pool_size)
+    #_update_info_data = partial(dquery_drupal_update_info_data, compatibility)
+    _update_info_data = lambda project : (project, dquery_drupal_update_info_data(compatibility, project, cache=cache))
+    projects_data = {}
+    #TODO: error handing, http timeouts etc
+    with Timeout(update_info_timeout, DQueryUpdateInfoTimeout):
+        for project, data in request_pool.imap_unordered(_update_info_data, projects):
+            projects_data[project] = data
+    return projects_data
 
 # Compatibility feels a bit redundant, part of project?
 # project_version to be replaced with general project entity?
@@ -550,7 +604,7 @@ def dquery_drupal_update_info_data(project, compatibility):
 @memoize
 @pickle_memoize
 def dquery_drupal_update_recommended_release(project, compatibility, cache=True):
-    data = dquery_drupal_update_info_data(project, compatibility)
+    data = dquery_drupal_update_info_data(compatibility, project)
     f = StringIO(data)
     tree = lxml.etree.parse(f)
     error = tree.xpath('/error/text()')
@@ -583,10 +637,10 @@ def dquery_drupal_update_recommended_release(project, compatibility, cache=True)
         f.close()
     return version_data
 
-# returns Core compabillity (or None), major and patch and development status
+# returns Core compatibillity (or None), major and patch and development status
 def dquery_parse_project_version(version):
     project_version_re = regex_cache(r"""
-        (?:(?P<core>\d+\.\w+)-)?                #Core compability, this is sometimes part of version string
+        (?:(?P<core>\d+\.\w+)-)?                #Core compatibility, this is sometimes part of version string
         (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
         (?:-(?P<status>.+))?                    #Development status, may be "dev","alpha" "rc-1" etc
     """, re.X)

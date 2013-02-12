@@ -324,6 +324,10 @@ def dquery_module_element_version_info(module_file_abspath):
     info = dquery_project_info(module_file_abspath, 'module')
     module_element_info = {}
     module_element_info['name'] = info['project']
+    if 'git_version' in info:
+        module_element_info['git_version'] = info['git_version']
+    if 'git_commit' in info:
+        module_element_info['git_commit'] = info['git_commit']
     if 'core' in info:
         module_element_info['core'] = info['core']
     if 'version' in info:

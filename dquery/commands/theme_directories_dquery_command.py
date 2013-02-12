@@ -1,6 +1,6 @@
 from dquery.application import dQueryCommand
 from dquery.lib import *
-
+# TODO: replace with project directories command?
 @dQueryCommand('theme-directories', help='list theme directories')
 def dquery_theme_directories_dquery_command(args):
     return dquery_drupal_system_directories(
