@@ -6,6 +6,7 @@
 # + colors
 #TODO: python doc-strings format and inline tests for relevant functions
 #TODO: split into lib and util and possibly more
+from __future__ import with_statement
 import warnings
 import base64
 import json
@@ -23,13 +24,15 @@ import cli #TODO
 import yaml #TODO: would be nice with some colored keys etc
 import lxml.etree
 import git
+from git.cmd import Git
+from git import Repo
+from git.repo.fun import is_git_dir
 #TODO: add gevent and perhaps urllib2 as dependencies
 from gevent import monkey; monkey.patch_socket()
 import gevent
 import httplib2
 # import urllib2 #TODO: use this instead?
 from functools import partial
-
 #TODO: try catch
 try:
     from cStringIO import cStringIO as StringIO
@@ -127,27 +130,39 @@ def dquery_clear_cache(pattern=None):
 
 #TODO: This should thow an exception if variable not found!!
 def drupal_settings_variable_json(filename, variable):
-    command = ['dquery_php_var_json', filename, variable];
+    command = ['dquery_php_var_json', filename, variable]
     try:
         #db_url_data = subprocess.check_output(command) # only works in python 2.7+
-        php_process = subprocess.Popen(command, stdout=subprocess.PIPE) # .communicate()[0]
-        data = php_process.communicate()[0]
-
+        data, returncode = dquery_shell_command(command)
         # Replace with constants
-        if php_process.returncode == 1:
+        if returncode == 1:
             message = 'variable {0!r} not found in {1!r}'
             raise DQueryException(
                 message.format(variable, filename))
-        elif php_process.returncode:
+        elif returncode:
             message = 'unknown error extracting variable {0!r} from {1!r}'
             raise DQueryException(
                 message.format(variable, filename))
         else:
             variable_json = json.loads(data, encoding='ascii')
-            return variable_json;
+            return variable_json
     except subprocess.CalledProcessError as e:
         #TODO: do something
         raise e
+
+def dquery_shell_command(command, **kwargs):
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, **kwargs) # .communicate()[0]
+        stdoutdata, stderrdata = process.communicate()
+        return (stdoutdata, process.returncode)
+    except subprocess.CalledProcessError as e:
+        #TODO: do something
+        raise e
+    
+# Concurrent execution using greenthreads/gevent
+def dquery_shell_commands(commands):
+    pass
+
 
 d6_db_url_re = re.compile(r"^(?P<type>\w+?)://(?P<username>.+?)(?::(?P<password>.+?))?@(?P<hostname>.+?)(?::(?P<port>.+?))?/(?P<database>.+)$")
 
@@ -396,24 +411,24 @@ def dquery_project_info(filename, extension_type):
 def _dquery_project_info_git_info(filename, extension_type):
     info = {}
     filename_dir = os.path.dirname(filename)
-    if git.repo.fun.is_git_dir(filename_dir) or True:
-        g = git.Git(filename_dir)
-        try:
-            #TODO: rebuild version
-            git_version = g.describe("--tags")
-            info['git_version'] = git_version
-            fetch_url = g.config("--get", "remote.origin.url")
-            if fetch_url:
-                project = fetch_url.rsplit("/", 1)[1]
-                project = project.split(".git")[0]
-                info['project'] = project
-            repo = git.Repo(filename_dir)
-            commit = git.repo.fun.rev_parse(repo, 'HEAD')
-            info['git_commit'] = commit.hexsha
-        except git.exc.GitCommandError as e:
-            #TODO: check exit status, 128 is not a git repo. Crash on any other status
-            if e.status != 128:
-                raise e
+    # git.cmd.Git() ??
+    git_instance = git.Git(filename_dir)
+    try:
+        # TODO: the order in which we call theses is significat because the first two
+        # will trigger exception if not a git repository
+        # this is a bit of a code stink and should get fixed
+        info['git_version'] = dquery_git_project_git_version(git_instance)
+        info['git_commit'] = dquery_git_project_commit(filename_dir)
+        project_name = dquery_git_project_name(git_instance)
+        if project_name:
+            info['project'] = project_name
+    except git.exc.GitCommandError as e:
+        #TODO: check exit status, 128 is not a git repo, 1 is when variable not found (or some kind of catch all?). Crash on any other status
+        if not (e.status == 128 or e.status == 1):
+            #TODO: convert to dquery exception
+            print filename
+            print extension_type
+            raise e
     return info
 
 def _dquery_project_info_file_info(filename, extension_type):
@@ -516,7 +531,8 @@ def dquery_files_directory(files):
 
 def dquery_drupal_system_directories(drupal_root, directory, include_sites=True, cache=True):
     module_directories = [] 
-    module_directories.append(os.path.join(drupal_root, directory))
+    # TODO: Temporary disable drupal core directories to avoid some issues
+    # module_directories.append(os.path.join(drupal_root, directory))
     module_directories.append(os.path.join(drupal_root, 'sites/all', directory))
     #TODO: profiles
     if include_sites:
@@ -573,7 +589,10 @@ def module_directories_from_context(drupal_root, cache=True):
         return module_directories
 
 #TODO error handling
-def dquery_drupal_update_info_data(compatibility, project):
+#TODO: no cache or separate cache
+# @memoize
+# @pickle_memoize
+def dquery_drupal_update_info_data(compatibility, project, cache=True):
     update_url = 'http://updates.drupal.org/release-history'
     url = '/'.join([update_url, project, compatibility])
     h = httplib2.Http(dquery_settings.cache_dir_abspath)
@@ -586,8 +605,8 @@ from gevent.pool import Pool
 def dquery_drupal_update_info_projects_data(compatibility, projects, cache=True):
     #TODO: setting
     # Give up after 10 minutes
-    update_info_timeout = 5
-    update_info_request_pool_size = 25
+    update_info_timeout = 60
+    update_info_request_pool_size = 30
     request_pool = Pool(update_info_request_pool_size)
     #_update_info_data = partial(dquery_drupal_update_info_data, compatibility)
     _update_info_data = lambda project : (project, dquery_drupal_update_info_data(compatibility, project, cache=cache))
@@ -638,7 +657,11 @@ def dquery_drupal_update_recommended_release(project, compatibility, cache=True)
     return version_data
 
 # returns Core compatibillity (or None), major and patch and development status
+# TODO: rename status to extra
+# TODO: rename function?
 def dquery_parse_project_version(version):
+    # TODO: assert beginning/end of string?
+    # TODO: add support for git versions
     project_version_re = regex_cache(r"""
         (?:(?P<core>\d+\.\w+)-)?                #Core compatibility, this is sometimes part of version string
         (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
@@ -652,6 +675,34 @@ def dquery_parse_project_version(version):
     else:
         return match.groupdict()
 
+def dquery_parse_project_git_version(git_version):
+    git_version_re = regex_cache(r"""
+        ^(?P<drupal_version>
+            (?:\d+\.\w+-)?      #Core compatibility, this is sometimes part of drupal version string
+            \d+\.\w+            #Major and patch version (patch version may be "x" for dev releases)
+            (?:-[^-]+)?         #Development status, may be "dev","alpha" "rc-1" etc
+        )
+        (?P<git_extra>
+            -
+            (?P<number_of_commits>
+                \d+
+            )
+            -g
+            (?P<abbrev_commit>
+                [0-9a-f]{7,}
+            )
+        )$
+    """, re.X)
+    match = git_version_re.match(version)
+    if match is None:
+        warnings.warn(
+            "unrecognized git version string: {0!r}".format(git_version),
+            DQueryWarning)
+    else:
+        return match.groupdict()
+
+
+
 def dquery_format_site(format, drupal_root, site_abspath):
     if format == 'basename':
         return os.path.basename(site_abspath)
@@ -664,4 +715,164 @@ def dquery_format_site(format, drupal_root, site_abspath):
     else:
         #print error/warning
         return site_abspath
+
+# Originally from: http://code.activestate.com/recipes/576620-changedirectory-context-manager/
+
+class ChangeDirectory(object):
+    """
+    ChangeDirectory is a context manager that allowing 
+    you to temporary change the working directory.
+
+    >>> import tempfile
+    >>> td = os.path.realpath(tempfile.mkdtemp())
+    >>> currentdirectory = os.getcwd()
+    >>> with ChangeDirectory(td) as cd:
+    ...     assert cd.current == td
+    ...     assert os.getcwd() == td
+    ...     assert cd.previous == currentdirectory
+    ...     assert os.path.normpath(os.path.join(cd.current, cd.relative)) == cd.previous
+    ...
+    >>> assert os.getcwd() == currentdirectory
+    >>> with ChangeDirectory(td) as cd:
+    ...     os.mkdir('foo')
+    ...     with ChangeDirectory('foo') as cd2:
+    ...         assert cd2.previous == cd.current
+    ...         assert cd2.relative == '..'
+    ...         assert os.getcwd() == os.path.join(td, 'foo')
+    ...     assert os.getcwd() == td
+    ...     assert cd.current == td
+    ...     os.rmdir('foo')
+    ...
+    >>> os.rmdir(td)
+    >>> with ChangeDirectory('.') as cd:
+    ...     assert cd.current == currentdirectory
+    ...     assert cd.current == cd.previous
+    ...     assert cd.relative == '.'
+    """
+
+    def __init__(self, directory):
+        self._dir = directory
+        self._cwd = os.getcwd()
+        self._pwd = self._cwd
+
+    @property
+    def current(self):
+        return self._cwd
+    
+    @property
+    def previous(self):
+        return self._pwd
+    
+    @property
+    def relative(self):
+        c = self._cwd.split(os.path.sep)
+        p = self._pwd.split(os.path.sep)
+        l = min(len(c), len(p))
+        i = 0
+        while i < l and c[i] == p[i]:
+            i += 1
+        return os.path.normpath(os.path.join(*(['.'] + (['..'] * (len(c) - i)) + p[i:])))
+    
+    def __enter__(self):
+        self._pwd = self._cwd
+        os.chdir(self._dir)
+        self._cwd = os.getcwd()
+        return self
+
+    def __exit__(self, *args):
+        os.chdir(self._pwd)
+        self._cwd = self._pwd
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
+
+# Git stuff
+def dquery_git_install_project(url, drupal_version, target_abspath):
+    branch_or_tag, reference = dquery_project_version_git_reference(drupal_version)
+    if branch_or_tag == 'branch':
+        dquery_shell_command(['git', 'clone', url, target_abspath, '-b', reference, '--quiet', '--recursive'], cwd=target_abspath)
+    else:
+        dquery_shell_command(['git', 'clone', url, target_abspath, '--quiet', '--no-checkout', '--recursive'], cwd=target_abspath)
+        output = dquery_shell_command(['git', 'tag', '-l', reference], cwd=target_abspath)
+        if output:
+            dquery_shell_command(['git', 'checkout', reference, '--quiet'], cwd=target_abspath)
+        else:
+            #TODO: warning/exception
+            print 'error'
+    # TODO: remove this and fix status message function
+    print url
+    #remote_repo = Repo.clone_from(url, target_abspath)
+
+def dquery_git_update_project(url, branch_or_tag, checkout_target, target_abspath):
+    #g = Git(target_abspath)
+    pass
+
+def dquery_git_deploy_project(url, branch_or_tag, checkout_target, target_abspath):
+    #g = Git(target_abspath)
+    pass
+
+def dquery_drupal_org_git_url(project_name, username=None):
+    if username: 
+        return username + '@git.drupal.org:project/' + project_name + '.git'
+    else:
+        return 'git://git.drupal.org/project/' + project_name + '.git'
+
+
+#TODO: this is really inconsistant, fix this later
+def dquery_git_project_commit(project_dir):
+    repo = git.Repo(project_dir)
+    commit = git.repo.fun.rev_parse(repo, 'HEAD')
+    return commit.hexsha
+
+# Make metadata class wrapper instead? 
+def dquery_git_project_name(git_instance):
+    fetch_url = dquery_git_project_fetch_url(git_instance)
+    if fetch_url:
+        try:
+            project_name = fetch_url.rsplit("/", 1)[1]
+            project_name = project_name.split(".git")[0]
+            return project_name
+        except IndexError as e:
+            # Git repo with remote but not a drupal.org one
+            # TODO: handle this case some how
+            pass
+
+def dquery_git_project_fetch_url(git_instance):
+    return git_instance.config("--get", "remote.origin.url")
+
+def dquery_git_project_git_version(git_instance):
+    git_version = git_instance.describe("--tags", "--always")
+    return git_version
+
+def dquery_git_project_drupal_version(git_instance):
+    git_version = dquery_git_project_git_version(git_instance)
+    return dquery_project_git_to_drupal_version(git_version)
+
+#TODO: write doctests
+def dquery_project_git_to_drupal_version(git_version):
+    version_parsed = dquery_parse_project_git_version(git_version)
+    if version_parsed:
+        return version_parsed['drupal_version'] + '+' + version_parsed['number_of_commits'] + '-dev'
+
+def dquery_project_drupal_to_git_version(drupal_version):
+    pass
+    #TODO: Verify this is correct
+
+def dquery_project_version_git_branch(version):
+    #This is probably not safe, but just to try things out:
+    version_parsed = dquery_parse_project_version(version)
+    return verion_parsed['core'] + '-' + version_parsed['major'] + '.x'
+
+def dquery_project_version_git_reference(version):
+    version_parsed = dquery_parse_project_version(version)
+    if 'status' in version_parsed and version_parsed['status'] == 'dev':
+        #Hard/impossible to know exact version, could try to guess using different heuristics
+        #but for now just return branch
+        return ('branch', dquery_project_version_git_branch(version))
+    return ('tag', version)
+
+def dquery_is_git_dir(dir_path):
+    git_dir_path = os.path.join(dir_path, '.git')
+    return os.path.isdir(git_dir_path) and is_git_dir(git_dir_path)
 

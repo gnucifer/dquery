@@ -30,6 +30,7 @@ def dquery_multisite_xml_directories_xpath(drupal_root, xpath_expression, use_da
     xpath_expression = '//directory[' + conditions + ']' + xpath_expression
     return dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=cache)
 
+#TODO: Poor choice of function name, change
 def dquery_multisite_xpath_query(drupal_root, xpath_expression, use_database, cache=True):
     result = dquery_multisite_xml_xpath(drupal_root, xpath_expression, use_database, cache=cache)
     return dquery_xpath_result_to_python(result)
