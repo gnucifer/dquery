@@ -63,7 +63,6 @@ class DQueryMissingInfoFileError(DQueryException):
     pass
 
 class DQueryUpdateInfoTimeout(DQueryException):
-
     pass
 #Warnings
 
@@ -162,7 +161,6 @@ def dquery_shell_command(command, **kwargs):
 # Concurrent execution using greenthreads/gevent
 def dquery_shell_commands(commands):
     pass
-
 
 d6_db_url_re = re.compile(r"^(?P<type>\w+?)://(?P<username>.+?)(?::(?P<password>.+?))?@(?P<hostname>.+?)(?::(?P<port>.+?))?/(?P<database>.+)$")
 
@@ -665,7 +663,12 @@ def dquery_parse_project_version(version):
     project_version_re = regex_cache(r"""
         (?:(?P<core>\d+\.\w+)-)?                #Core compatibility, this is sometimes part of version string
         (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
-        (?:-(?P<status>.+))?                    #Development status, may be "dev","alpha" "rc-1" etc
+        (?:-(?P<status>[^+]+))?                 #Development status, may be "dev","alpha" "rc-1" etc
+        (?P<git_extra>
+            \+
+            (?P<number_of_commits>\d+)
+            (?:-dev)?
+        )?
     """, re.X)
     match = project_version_re.match(version)
     if match is None:
@@ -847,18 +850,24 @@ def dquery_git_project_git_version(git_instance):
 
 def dquery_git_project_drupal_version(git_instance):
     git_version = dquery_git_project_git_version(git_instance)
-    return dquery_project_git_to_drupal_version(git_version)
+    return dquery_project_git_version_to_drupal_version(git_version)
 
 #TODO: write doctests
-def dquery_project_git_to_drupal_version(git_version):
+def dquery_project_git_version_to_drupal_version(git_version):
     version_parsed = dquery_parse_project_git_version(git_version)
     if version_parsed:
         return version_parsed['drupal_version'] + '+' + version_parsed['number_of_commits'] + '-dev'
 
-def dquery_project_drupal_to_git_version(drupal_version):
-    pass
+def dquery_project_drupal_version_to_git_reference(drupal_version):
     #TODO: Verify this is correct
+    version_parsed = dquery_parse_project_version(version)
+    reference = [version_parsed['drupal_version']]
+    if version_parsed['git_extra']:
+        commits = int(version_parsed['number_of_commits'])
+        reference = reference + (commits * ['^'])
+    return ''.join(reference)
 
+#TODO: rename to dqurey_project_drupal_version_git_branch?
 def dquery_project_version_git_branch(version):
     #This is probably not safe, but just to try things out:
     version_parsed = dquery_parse_project_version(version)
