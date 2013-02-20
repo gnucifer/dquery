@@ -380,7 +380,7 @@ def dquery_partition_by_project(files_abspaths, extension_type):
                     projects_files[project] = []
                 projects_files[project].append(file_abspath)
             else:
-                message = '{0!r} has no project information and will ignored'
+                message = '{0!r} has no project information and will be ignored'
                 warnings.warn(message.format(file_abspath), DQueryWarning)
         except DQueryException as e:
             warnings.warn(e.message, DQueryWarning)
@@ -404,20 +404,33 @@ def dquery_project_info(filename, extension_type):
     info.update(_dquery_project_info_git_info(filename, extension_type))
     return info
 
+def dquery_project_git_instance(project_dir):
+    project_toplevel = dquery_git_project_toplevel(project_dir)
+    #If toplevel is set this is a valid git directory
+    if project_toplevel:
+        # Get (possibly cached) instance
+        instance =  _dquery_project_git_instance(project_toplevel)
+        return instance
+
+@memoize
+def _dquery_project_git_instance(project_toplevel):
+    git_instance = git.Git(project_toplevel)
+    return git_instance
+
 #TODO: include existing info or not?
 #Extract project, current commit, closest tag?
 def _dquery_project_info_git_info(filename, extension_type):
     info = {}
     filename_dir = os.path.dirname(filename)
     # git.cmd.Git() ??
-    git_instance = git.Git(filename_dir)
     try:
         # TODO: the order in which we call theses is significat because the first two
         # will trigger exception if not a git repository
         # this is a bit of a code stink and should get fixed
-        info['git_version'] = dquery_git_project_git_version(git_instance)
+        info['git_version'] = dquery_git_project_git_version(filename_dir)
+        info['version'] = dquery_git_project_drupal_version(filename_dir)
         info['git_commit'] = dquery_git_project_commit(filename_dir)
-        project_name = dquery_git_project_name(git_instance)
+        project_name = dquery_git_project_name(filename_dir)
         if project_name:
             info['project'] = project_name
     except git.exc.GitCommandError as e:
@@ -661,9 +674,11 @@ def dquery_parse_project_version(version):
     # TODO: assert beginning/end of string?
     # TODO: add support for git versions
     project_version_re = regex_cache(r"""
-        (?:(?P<core>\d+\.\w+)-)?                #Core compatibility, this is sometimes part of version string
-        (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
-        (?:-(?P<status>[^+]+))?                 #Development status, may be "dev","alpha" "rc-1" etc
+        (?P<drupal_version>
+            (?:(?P<core>\d+\.\w+)-)?                #Core compatibility, this is sometimes part of version string
+            (?P<major>\d+)\.(?P<patch>\w+)          #Major and patch version (patch version may be "x" for dev releases)
+            (?:-(?P<status>[^+]+))?                 #Development status, may be "dev","alpha" "rc-1" etc
+        )
         (?P<git_extra>
             \+
             (?P<number_of_commits>\d+)
@@ -696,7 +711,7 @@ def dquery_parse_project_git_version(git_version):
             )
         )$
     """, re.X)
-    match = git_version_re.match(version)
+    match = git_version_re.match(git_version)
     if match is None:
         warnings.warn(
             "unrecognized git version string: {0!r}".format(git_version),
@@ -790,11 +805,36 @@ if __name__ == '__main__':
     import doctest
     doctest.testmod()
 
+
+#TODO: move down to other git convenience functions
+#TODO: error handling
+def dquery_git_project_toplevel(target_abspath):
+    project_toplevel, error = dquery_shell_command(['git', 'rev-parse', '--show-toplevel'], cwd=target_abspath)
+    if project_toplevel:
+        return project_toplevel.strip()
+
+
+#TODO: refactor this branch_or_tag thiny
+#TODO: What if already on branch?
+def dquery_drupal_project_checkout(reference, git_path):
+    repo = git.Repo(git_path, odbt=git.GitCmdObjectDB) #TODO: benchmark different object db?
+    if repo.is_dirty():
+        message = 'Git repo in {0!r} is dirty and checkout canot be performed'
+        warnings.warn(message.format(git_path), DQueryWarning)
+    else:
+        getattr(repo.heads, reference).checkout()
+
 # Git stuff
 def dquery_git_install_project(url, drupal_version, target_abspath):
-    branch_or_tag, reference = dquery_project_version_git_reference(drupal_version)
+    # TODO: handle errors return from dquery_shell_command???
+    # TODO: Boolean instead is_branch?
+    # TODO: if toplevel
+    branch = dquery_project_version_git_branch(drupal_version)
+    dquery_shell_command(['git', 'clone', url, target_abspath, '-b', branch, '--quiet', '--recursive', '--no-checkout'], cwd=target_abspath)
+    branch_or_tag, reference = dquery_project_version_git_reference(drupal_version, target_abspath)
+    """
     if branch_or_tag == 'branch':
-        dquery_shell_command(['git', 'clone', url, target_abspath, '-b', reference, '--quiet', '--recursive'], cwd=target_abspath)
+        dquery_shell_command(['git', 'checkout', branch, cwd=target_abspath)
     else:
         dquery_shell_command(['git', 'clone', url, target_abspath, '--quiet', '--no-checkout', '--recursive'], cwd=target_abspath)
         output = dquery_shell_command(['git', 'tag', '-l', reference], cwd=target_abspath)
@@ -803,9 +843,9 @@ def dquery_git_install_project(url, drupal_version, target_abspath):
         else:
             #TODO: warning/exception
             print 'error'
+    """
     # TODO: remove this and fix status message function
     print url
-    #remote_repo = Repo.clone_from(url, target_abspath)
 
 def dquery_git_update_project(url, branch_or_tag, checkout_target, target_abspath):
     #g = Git(target_abspath)
@@ -824,7 +864,7 @@ def dquery_drupal_org_git_url(project_name, username=None):
 
 #TODO: this is really inconsistant, fix this later
 def dquery_git_project_commit(project_dir):
-    repo = git.Repo(project_dir)
+    repo = git.Repo(project_dir, odbt=git.GitCmdObjectDB)
     commit = git.repo.fun.rev_parse(repo, 'HEAD')
     return commit.hexsha
 
@@ -841,41 +881,61 @@ def dquery_git_project_name(git_instance):
             # TODO: handle this case some how
             pass
 
-def dquery_git_project_fetch_url(git_instance):
-    return git_instance.config("--get", "remote.origin.url")
-
-def dquery_git_project_git_version(git_instance):
-    git_version = git_instance.describe("--tags", "--always")
-    return git_version
-
-def dquery_git_project_drupal_version(git_instance):
-    git_version = dquery_git_project_git_version(git_instance)
+#TODO: memoize some of theses
+#TODO: warn/crash on empty git instance?
+@memoize
+def dquery_git_project_fetch_url(project_dir):
+    git_instance = dquery_project_git_instance(project_dir)
+    if git_instance:
+        return git_instance.config("--get", "remote.origin.url")
+@memoize
+def dquery_git_project_git_version(project_dir):
+    git_instance = dquery_project_git_instance(project_dir)
+    if git_instance:
+        git_version = git_instance.describe("--tags", "--always")
+        return git_version
+@memoize
+def dquery_git_project_drupal_version(project_dir):
+    git_version = dquery_git_project_git_version(project_dir)
     return dquery_project_git_version_to_drupal_version(git_version)
 
 #TODO: write doctests
+#TODO: rename to rebuild version
 def dquery_project_git_version_to_drupal_version(git_version):
     version_parsed = dquery_parse_project_git_version(git_version)
     if version_parsed:
         return version_parsed['drupal_version'] + '+' + version_parsed['number_of_commits'] + '-dev'
 
-def dquery_project_drupal_version_to_git_reference(drupal_version):
-    #TODO: Verify this is correct
-    version_parsed = dquery_parse_project_version(version)
-    reference = [version_parsed['drupal_version']]
-    if version_parsed['git_extra']:
-        commits = int(version_parsed['number_of_commits'])
-        reference = reference + (commits * ['^'])
-    return ''.join(reference)
+def dquery_drupal_project_resolve_commit(branch, tag, commits_ahead, git_path):
+    repo = git.Repo(git_path, odbt=git.GitCmdObjectDB) #TODO: benchmark different object db?
+    if repo.is_dirty():
+        message = 'Git repo in {0!r} is dirty and project commit cannot be resolved'
+        warnings.warn(message.format(git_path), DQueryWarning)
+    else:
+        output = repo.git.rev_list('--reverse', '^' + tag, branch)
+        commits = output.split("\n", commits_ahead)
+        return commits[commits_ahead - 1]
 
 #TODO: rename to dqurey_project_drupal_version_git_branch?
 def dquery_project_version_git_branch(version):
     #This is probably not safe, but just to try things out:
     version_parsed = dquery_parse_project_version(version)
-    return verion_parsed['core'] + '-' + version_parsed['major'] + '.x'
+    return version_parsed['core'] + '-' + version_parsed['major'] + '.x'
 
-def dquery_project_version_git_reference(version):
+@memoize
+def dquery_project_version_git_reference(version, git_path):
     version_parsed = dquery_parse_project_version(version)
-    if 'status' in version_parsed and version_parsed['status'] == 'dev':
+    if version_parsed['git_extra']:
+        commit = dquery_drupal_project_resolve_commit(
+            dquery_project_version_git_branch(version),
+            version_parsed['drupal_version'],
+            int(version_parsed['number_of_commits']),
+            git_path)
+        if commit:
+            return ('commit', commit)
+        else:
+            return (None, None)
+    elif 'status' in version_parsed and version_parsed['status'] == 'dev':
         #Hard/impossible to know exact version, could try to guess using different heuristics
         #but for now just return branch
         return ('branch', dquery_project_version_git_branch(version))
