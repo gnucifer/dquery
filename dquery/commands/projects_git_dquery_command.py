@@ -32,6 +32,14 @@ def dquery_projects_git_dquery_command(args):
 
     for project in projects:
         #TODO: sort this mess out
+        #project_abspath = project.getparent().attrib['abspath']
+
+        #Check if is dirty??
+
+        #Check if git dir
+
+        #Get current branch
+
         project_relpath = project.getparent().attrib['relpath']
         target_abspath = os.path.join(target_dir, project_relpath)
         
@@ -45,7 +53,8 @@ def dquery_projects_git_dquery_command(args):
             continue
 
         repo_url = dquery_drupal_org_git_url(project.attrib['name'])
-        dquery_git_install_project(repo_url, project.attrib['version'], target_abspath)  
+        branch = project.attrib['git_branch'] if 'git_branch' in project.attrib else None
+        dquery_git_install_project(repo_url, project.attrib['version'], target_abspath, branch=branch)  
             
     #TODO: collect drupal updatexml version data, use gevent??? Separate cache bin for this?? yes, no
 
